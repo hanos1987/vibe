@@ -540,32 +540,27 @@
 
       <div class="panel" id="p-apt" role="tabpanel" aria-labelledby="tab-apt">
         <button class="copy" type="button">COPY</button>
-<pre>curl -fsSL https://benjiapps.com/vibe/apt/vibe.gpg \
-  | sudo tee /usr/share/keyrings/vibe.gpg &gt;/dev/null
+<pre>curl -fsSLO https://github.com/hanos1987/vibe/releases/download/v0.1.0/vibe_0.1.0_all.deb
 
-echo "deb [signed-by=/usr/share/keyrings/vibe.gpg] \
-https://benjiapps.com/vibe/apt stable main" \
-  | sudo tee /etc/apt/sources.list.d/vibe.list
-
-sudo apt update &amp;&amp; sudo apt install vibe</pre>
-        <div class="note">Adds the VIBE repository, then installs the <code>vibe</code> package with a man page and examples.</div>
+sudo apt install ./vibe_0.1.0_all.deb</pre>
+        <div class="note">Installs the <code>vibe</code> package with a man page and examples. An APT repository, for a plain <code>sudo apt install vibe</code>, is coming.</div>
       </div>
 
       <div class="panel" id="p-nix" role="tabpanel" aria-labelledby="tab-nix" hidden>
         <button class="copy" type="button">COPY</button>
-<pre>curl -fsSL https://benjiapps.com/vibe/install.sh | sh</pre>
+<pre>curl -fsSL https://raw.githubusercontent.com/hanos1987/vibe/master/install.sh | sh</pre>
         <div class="note">Installs to <code>~/.local</code>. Needs only <code>python3</code>. Pass <code>--prefix</code> to put it elsewhere.</div>
       </div>
 
       <div class="panel" id="p-pip" role="tabpanel" aria-labelledby="tab-pip" hidden>
         <button class="copy" type="button">COPY</button>
-<pre>pipx install vibe-lang</pre>
-        <div class="note">Works on Linux, macOS and Windows. <code>pip install vibe-lang</code> does the same inside a virtualenv.</div>
+<pre>pipx install https://github.com/hanos1987/vibe/releases/download/v0.1.0/vibe_lang-0.1.0-py3-none-any.whl</pre>
+        <div class="note">Works on Linux, macOS and Windows. Use <code>pip install</code> instead to put it in a virtualenv.</div>
       </div>
 
       <div class="panel" id="p-win" role="tabpanel" aria-labelledby="tab-win" hidden>
         <button class="copy" type="button">COPY</button>
-<pre>irm https://benjiapps.com/vibe/install.ps1 | iex</pre>
+<pre>irm https://raw.githubusercontent.com/hanos1987/vibe/master/install.ps1 | iex</pre>
         <div class="note">Installs <code>vibec</code> natively. To run what you compile: <code>wsl --install</code>, then <code>wsl ./yourprogram</code>.</div>
       </div>
 
@@ -579,22 +574,23 @@ cd vibe
 
       <div class="eyebrow" style="margin-top:44px">Direct downloads</div>
       <div class="dl">
-        <a href="https://benjiapps.com/vibe/dl/vibe_0.1.0_all.deb">
+        <a href="https://github.com/hanos1987/vibe/releases/download/v0.1.0/vibe_0.1.0_all.deb">
           <span class="n">vibe_0.1.0_all.deb</span>
           <span class="m">48 KB · Debian / Ubuntu</span>
         </a>
-        <a href="https://benjiapps.com/vibe/dl/vibe-0.1.0.tar.gz">
+        <a href="https://github.com/hanos1987/vibe/releases/download/v0.1.0/vibe-0.1.0.tar.gz">
           <span class="n">vibe-0.1.0.tar.gz</span>
           <span class="m">68 KB · source, all platforms</span>
         </a>
-        <a href="https://benjiapps.com/vibe/dl/vibe_lang-0.1.0-py3-none-any.whl">
+        <a href="https://github.com/hanos1987/vibe/releases/download/v0.1.0/vibe_lang-0.1.0-py3-none-any.whl">
           <span class="n">vibe_lang-0.1.0.whl</span>
           <span class="m">48 KB · Python wheel</span>
         </a>
       </div>
       <p class="sub" style="margin-top:14px; font-size:14.5px">
-        Checksums: <a href="https://benjiapps.com/vibe/dl/SHA256SUMS">SHA256SUMS</a>.
+        Checksums: <a href="https://github.com/hanos1987/vibe/releases/download/v0.1.0/SHA256SUMS">SHA256SUMS</a>.
         Every artifact is reproducible with <code>packaging/release.sh</code> from the repository.
+        All releases are listed on <a href="https://github.com/hanos1987/vibe/releases">GitHub</a>.
       </p>
     </div>
   </section>
@@ -754,7 +750,7 @@ cd vibe
     <div>
       <a href="https://github.com/hanos1987/vibe">GitHub</a> ·
       <a href="https://github.com/hanos1987/vibe/blob/master/SPEC.md">Specification</a> ·
-      <a href="https://benjiapps.com/vibe/dl/SHA256SUMS">Checksums</a>
+      <a href="https://github.com/hanos1987/vibe/releases/download/v0.1.0/SHA256SUMS">Checksums</a>
     </div>
   </div>
 </footer>
