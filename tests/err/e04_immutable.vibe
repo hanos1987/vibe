@@ -1,0 +1,6 @@
+; err: immutable
+@! () s64 {
+  $ x s64 = 1
+  x = 2
+  ^ x
+}

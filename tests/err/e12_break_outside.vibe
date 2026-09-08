@@ -1,0 +1,5 @@
+; err: outside a loop
+@! () s64 {
+  *<
+  ^ 0
+}

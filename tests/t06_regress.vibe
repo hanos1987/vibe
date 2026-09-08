@@ -1,0 +1,56 @@
+; out: 7fff
+; out: 0
+; out: ffffffffffffffff
+; out: 499500
+; out: 334
+; exit: 0
+;
+; Regression cases for the optimiser and register allocator.
+;
+; px() once miscompiled: a value hoisted out of the loop by LICM had its
+; register reused inside the loop, because a fused compare-and-branch was not
+; recognised as a block terminator and liveness was under-approximated.
+<<"std.vibe"
+
+@ sum_to (n s64) s64 {
+  $~ i s64 = 0
+  $~ s s64 = 0
+  * (i < n) {
+    s = (s + i)
+    i = (i + 1)
+  }
+  ^ s
+}
+
+; deep nesting inside a loop, with values that must survive every branch
+@ mixed (n s64) s64 {
+  $~ i s64 = 0
+  $~ acc s64 = 0
+  * (i < n) {
+    ? ((i % 3) == 0) {
+      acc = (acc + 1)
+    } : {
+      ? ((i % 3) == 1) {
+        acc = (acc + 10)
+      } : {
+        acc = (acc + 100)
+      }
+    }
+    i = (i + 1)
+  }
+  ^ acc
+}
+
+@! () s64 {
+  px(32767)
+  nl()
+  px(0)
+  nl()
+  px(18446744073709551615)
+  nl()
+  pnl(sum_to(1000))
+  ; 0..2 -> 1 + 10 + 100 = 111 per 3; for n=3 -> 111
+  ? (mixed(3) != 111) { ^ 1 }
+  pnl(mixed(10))
+  ^ 0
+}

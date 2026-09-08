@@ -1,0 +1,55 @@
+; out: 24
+; out: 16
+; out: 3
+; out: 99
+; exit: 0
+;
+; %Outer embeds %Inner by value but is declared FIRST: layout must be
+; ordered by dependency, not by source order.
+<<"std.vibe"
+
+%Outer { a %Inner, b s64 }
+%Inner { x s64, y s64 }
+
+; recursive types are legal through a pointer
+%Node { v s64, next *%Node }
+
+%| Tree {
+  |Leaf
+  |Fork(*%Node, s64)
+}
+
+@ walk (n *%Node) s64 {
+  $~ p *%Node = n
+  $~ c s64 = 0
+  * (p != *%Node(0)) {
+    c = (c + p.v)
+    p = p.next
+  }
+  ^ c
+}
+
+@! () s64 {
+  pnl(#%Outer)
+  pnl(#%Inner)
+
+  $ o %Outer = %Outer{ a: %Inner{ x: 1, y: 2 }, b: 3 }
+  ? (o.a.y != 2) { ^ 1 }
+  pnl(o.b)
+
+  ; a three-node list built on the stack
+  $~ n3 %Node = %Node{ v: 50, next: *%Node(0) }
+  $~ n2 %Node = %Node{ v: 30, next: &n3 }
+  $~ n1 %Node = %Node{ v: 19, next: &n2 }
+  pnl(walk(&n1))
+
+  $ t %Tree = %Tree|Fork(&n1, 5)
+  ?? t {
+    |Leaf { ^ 2 }
+    |Fork(p, k) {
+      ? (p.v != 19) { ^ 3 }
+      ? (k != 5) { ^ 4 }
+    }
+  }
+  ^ 0
+}

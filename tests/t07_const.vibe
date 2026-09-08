@@ -1,0 +1,31 @@
+; out: 4096
+; out: 8
+; out: 42
+; exit: 0
+<<"std.vibe"
+
+$$ PAGE s64 = 4096
+$$ DOUBLE s64 = (PAGE * 2)
+$$ WORD s64 = #s64
+
+$~ hits s64 = 0
+$ limit s64 = 42
+
+@ tick () v {
+  hits = (hits + 1)
+  ^
+}
+
+@! () s64 {
+  pnl(PAGE)
+  pnl(WORD)
+
+  ? (DOUBLE != 8192) { ^ 1 }
+
+  tick()
+  tick()
+  ? (hits != 2) { ^ 2 }
+
+  pnl(limit)
+  ^ 0
+}

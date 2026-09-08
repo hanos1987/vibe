@@ -1,0 +1,6 @@
+; err: never converts silently
+@! () s64 {
+  $ a s64 = 1
+  $ b s32 = 2
+  ^ (a + b)
+}

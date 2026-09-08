@@ -1,0 +1,6 @@
+; err: missing field
+%P { a s64, b s64 }
+@! () s64 {
+  $ p %P = %P{ a: 1 }
+  ^ p.a
+}

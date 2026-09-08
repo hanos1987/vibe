@@ -1,0 +1,2 @@
+; err: no entry function
+@ f () s64 { ^ 1 }

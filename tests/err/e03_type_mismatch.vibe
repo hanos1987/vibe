@@ -1,0 +1,5 @@
+; err: expected s64, got b
+@! () s64 {
+  $ x s64 = (1 == 1)
+  ^ x
+}

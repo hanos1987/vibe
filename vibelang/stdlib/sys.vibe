@@ -1,0 +1,288 @@
+; VIBE system library: process arguments, memory, parsing, files, sockets.
+; Included automatically by std.vibe. Unused functions are not emitted.
+
+<<"std.vibe"
+
+; ---- process arguments and environment -------------------------------------
+;
+; __sp is the stack pointer the kernel handed the process: argc sits there,
+; then argv, a null, then envp.
+
+@ argc () s64 {
+  $ p *s64 = *s64(__sp)
+  ^ p'
+}
+
+@ argp (i s64) *u8 {
+  $ p *s64 = *s64(__sp)
+  ^ *u8(p[(i + 1)])
+}
+
+@ arg (i s64) %Str {
+  ? (i >= argc()) {
+    ^ %Str{ p: *u8(0), n: 0 }
+  }
+  $ q *u8 = argp(i)
+  ^ %Str{ p: q, n: ln(q) }
+}
+
+@ envp (i s64) *u8 {
+  $ p *s64 = *s64(__sp)
+  $ n s64 = p'
+  ^ *u8(p[((n + 2) + i)])
+}
+
+@ env (name %Str) %Str {
+  $~ i s64 = 0
+  * (envp(i) != *u8(0)) {
+    $ e *u8 = envp(i)
+    $ el s64 = ln(e)
+    ? (el > name.n) {
+      ? (e[name.n] == `=) {
+        ? beq(e, name.p, name.n) {
+          ^ %Str{ p: &e[(name.n + 1)], n: ((el - name.n) - 1) }
+        }
+      }
+    }
+    i = (i + 1)
+  }
+  ^ %Str{ p: *u8(0), n: 0 }
+}
+
+; ---- arena allocator -------------------------------------------------------
+;
+; Bump allocation out of mmap'd arenas. There is no free: an arena lives
+; until the process exits. Call mm/mu directly to manage a lifetime yourself.
+
+$$ ARENA s64 = 1048576
+
+$~ ap *u8
+$~ aleft s64 = 0
+
+@ alloc (n s64) *u8 {
+  $ need s64 = ((n + 15) & -16)
+  ? (need > aleft) {
+    $~ sz s64 = ARENA
+    ? (need > sz) {
+      sz = ((need + 4095) & -4096)
+    }
+    $ blk *u8 = mm(sz)
+    ? (blk == *u8(0)) {
+      ^ *u8(0)
+    }
+    ap = blk
+    aleft = sz
+  }
+  $ r *u8 = ap
+  ap = (ap + need)
+  aleft = (aleft - need)
+  ^ r
+}
+
+; ---- parsing ---------------------------------------------------------------
+
+; decimal to integer; stops at the first character that is not a digit
+@ nat (s %Str) s64 {
+  $~ i s64 = 0
+  $~ v s64 = 0
+  $~ neg b = 0
+  ? (s.n > 0) {
+    ? (s.p[0] == `-) {
+      neg = 1
+      i = 1
+    }
+  }
+  * (i < s.n) {
+    $ c u8 = s.p[i]
+    ? ((c < `0) || (c > `9)) {
+      *<
+    }
+    v = ((v * 10) + s64((c - `0)))
+    i = (i + 1)
+  }
+  ? neg {
+    ^ -v
+  }
+  ^ v
+}
+
+; ---- float output ----------------------------------------------------------
+
+@ pf (x f64, dp s64) v {
+  $~ v f64 = x
+  ? (v < 0.0) {
+    pc(`-)
+    v = -v
+  }
+  ? (dp <= 0) {
+    pn(s64((v + 0.5)))
+    ^
+  }
+  $~ scale s64 = 1
+  $~ k s64 = 0
+  * (k < dp) {
+    scale = (scale * 10)
+    k = (k + 1)
+  }
+  ; round at the last digit asked for, so 2.7182818 to 6 places is 2.718282
+  $ scaled s64 = s64(((v * f64(scale)) + 0.5))
+  pn((scaled / scale))
+  pc(`.)
+  $ frac s64 = (scaled % scale)
+  $~ d s64 = (scale / 10)
+  * (d > 0) {
+    pc(u8((`0 + ((frac / d) % 10))))
+    d = (d / 10)
+  }
+  ^
+}
+
+@ pfl (x f64, dp s64) v {
+  pf(x, dp)
+  nl()
+  ^
+}
+
+; ---- files -----------------------------------------------------------------
+
+$$ O_RDONLY s64 = 0
+$$ O_WRONLY s64 = 1
+$$ O_RDWR   s64 = 2
+$$ O_CREAT  s64 = 64
+$$ O_TRUNC  s64 = 512
+$$ O_APPEND s64 = 1024
+
+@ fo (path *u8, flags s64, mode s64) s64 {
+  ^ \2(path, flags, mode)
+}
+
+@ fc (fd s64) v {
+  \3(fd)
+  ^
+}
+
+@ fsz (fd s64) s64 {
+  $ end s64 = \8(fd, 0, 2)
+  \8(fd, 0, 0)
+  ^ end
+}
+
+; read a whole file into freshly allocated, NUL-terminated memory
+@ fall (path *u8) %Str {
+  $ fd s64 = fo(path, O_RDONLY, 0)
+  ? (fd < 0) {
+    ^ %Str{ p: *u8(0), n: 0 }
+  }
+  $ n s64 = fsz(fd)
+  $ buf *u8 = alloc((n + 1))
+  ? (buf == *u8(0)) {
+    fc(fd)
+    ^ %Str{ p: *u8(0), n: 0 }
+  }
+  $~ got s64 = 0
+  * (got < n) {
+    $ k s64 = \0(fd, &buf[got], (n - got))
+    ? (k <= 0) {
+      *<
+    }
+    got = (got + k)
+  }
+  fc(fd)
+  buf[got] = 0
+  ^ %Str{ p: buf, n: got }
+}
+
+; ---- time ------------------------------------------------------------------
+
+%TSpec { sec s64, nsec s64 }
+
+@ now_ns () s64 {
+  $~ ts %TSpec
+  \228(1, &ts)
+  ^ ((ts.sec * 1000000000) + ts.nsec)
+}
+
+@ nap (ms s64) v {
+  $~ req %TSpec = %TSpec{ sec: (ms / 1000), nsec: ((ms % 1000) * 1000000) }
+  \35(&req, 0)
+  ^
+}
+
+; ---- processes -------------------------------------------------------------
+;
+; Concurrency is by process: fork returns 0 in the child and the child pid
+; in the parent, exactly as the kernel reports it.
+
+@ fork () s64 {
+  ^ \57()
+}
+
+@ pid () s64 {
+  ^ \39()
+}
+
+; wait for one child; returns its exit status
+@ waitpid (p s64) s64 {
+  $~ st s32 = 0
+  $ r s64 = \61(p, &st, 0, 0)
+  ? (r < 0) {
+    ^ -1
+  }
+  ^ s64(((st >> 8) & 255))
+}
+
+@ exec (path *u8, argv **u8, envp **u8) s64 {
+  ^ \59(path, argv, envp)
+}
+
+@ pip (fds *s32) s64 {
+  ^ \22(fds)
+}
+
+@ dup2 (old s64, new s64) s64 {
+  ^ \33(old, new)
+}
+
+; ---- sockets ---------------------------------------------------------------
+
+$$ AF_INET      s64 = 2
+$$ SOCK_STREAM  s64 = 1
+$$ SOL_SOCKET   s64 = 1
+$$ SO_REUSEADDR s64 = 2
+
+%SockAddr { fam u16, port u16, addr u32, pad [8]u8 }
+
+@ hton16 (x s64) u16 {
+  $ lo s64 = (x & 255)
+  $ hi s64 = ((x >> 8) & 255)
+  ^ u16(((lo << 8) | hi))
+}
+
+; bind and listen on a TCP port; returns the listening fd, or -1
+@ srv (port s64) s64 {
+  $ fd s64 = \41(AF_INET, SOCK_STREAM, 0)
+  ? (fd < 0) {
+    ^ -1
+  }
+  $~ one s32 = 1
+  \54(fd, SOL_SOCKET, SO_REUSEADDR, &one, 4)
+  $~ sa %SockAddr = %SockAddr{
+    fam: u16(AF_INET),
+    port: hton16(port),
+    addr: 0,
+    pad: [0, 0, 0, 0, 0, 0, 0, 0]
+  }
+  ? (\49(fd, &sa, 16) < 0) {
+    fc(fd)
+    ^ -1
+  }
+  ? (\50(fd, 64) < 0) {
+    fc(fd)
+    ^ -1
+  }
+  ^ fd
+}
+
+@ acc (fd s64) s64 {
+  ^ \43(fd, 0, 0)
+}

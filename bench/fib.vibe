@@ -1,0 +1,14 @@
+; recursion and call overhead
+<<"std.vibe"
+
+@ fib (n s64) s64 {
+  ? (n < 2) {
+    ^ n
+  }
+  ^ (fib((n - 1)) + fib((n - 2)))
+}
+
+@! () s64 {
+  pnl(fib(35))
+  ^ 0
+}

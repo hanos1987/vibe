@@ -1,0 +1,5 @@
+; err: does not chain
+@! () s64 {
+  $ x b = (1 < 2 < 3)
+  ^ 0
+}

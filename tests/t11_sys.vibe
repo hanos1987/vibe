@@ -1,0 +1,90 @@
+; out: argv ok
+; out: env ok
+; out: 12345
+; out: -42
+; out: 3.14159
+; out: 2.00000
+; out: 12.000000
+; out: 2.718282
+; out: 1.000000
+; out: 0.000000
+; out: alloc ok
+; out: child said 7
+; out: file ok
+; exit: 0
+;
+; The categories that need the system library: arguments, environment,
+; parsing, floats, maths, heap, processes, files.
+<<"std.vibe"
+<<"math.vibe"
+
+@ near (a f64, b f64) b {
+  $ d f64 = (a - b)
+  ? (d < 0.0) {
+    ^ ((-d) < 0.000001)
+  }
+  ^ (d < 0.000001)
+}
+
+@! () s64 {
+  ; argv: the runner passes no arguments, but argv[0] is always there
+  ? (argc() < 1) { ^ 1 }
+  ? (arg(0).n == 0) { ^ 2 }
+  ps("argv ok\n")
+
+  ; environment
+  ? (env("PATH").n == 0) { ^ 3 }
+  ? (env("__VIBE_NOT_SET__").n != 0) { ^ 4 }
+  ps("env ok\n")
+
+  ; parsing
+  pnl(nat("12345xyz"))
+  pnl(nat("-42"))
+
+  ; floats and maths
+  pfl(M_PI, 5)
+  pfl(sqrt(4.0), 5)
+  pfl(hypot(basefn(), 9.6), 6)
+  pfl(exp(1.0), 6)
+  pfl(pow(2.0, 0.0), 6)
+  pfl(sin(0.0), 6)
+  ? !near(lg(M_E), 1.0) { ^ 5 }
+  ? !near(cos(0.0), 1.0) { ^ 6 }
+  ? !near(pow(2.0, 10.0), 1024.0) { ^ 7 }
+  ? !near(floor(-1.5), -2.0) { ^ 8 }
+  ? !near(ceil(-1.5), -1.0) { ^ 9 }
+
+  ; heap
+  $ p *u8 = alloc(100000)
+  ? (p == *u8(0)) { ^ 10 }
+  set(p, `Z, 100000)
+  ? (p[99999] != `Z) { ^ 11 }
+  $ q *u8 = alloc(32)
+  ? (q == p) { ^ 12 }
+  ps("alloc ok\n")
+
+  ; processes
+  $ c s64 = fork()
+  ? (c == 0) {
+    ex(7)
+  }
+  $ st s64 = waitpid(c)
+  ps("child said ")
+  pnl(st)
+
+  ; files: write one, read it back
+  $ fd s64 = fo("/tmp/vibe_t11.txt".p, ((O_WRONLY | O_CREAT) | O_TRUNC), 420)
+  ? (fd < 0) { ^ 13 }
+  $ msg %Str = "roundtrip\n"
+  wr(fd, msg.p, msg.n)
+  fc(fd)
+  $ back %Str = fall("/tmp/vibe_t11.txt".p)
+  ? !seq(back, msg) { ^ 14 }
+  ps("file ok\n")
+  ^ 0
+}
+
+; 7.2, kept in a function so the literal is exercised through a call
+@ basefn () f64 {
+  ^ 7.2
+}

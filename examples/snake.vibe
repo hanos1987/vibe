@@ -1,0 +1,294 @@
+; snake, in VIBE, with no libc.
+;
+; raw terminal mode via ioctl, input via read, timing via nanosleep,
+; output via write. Nothing else is linked in.
+;
+;   vibec examples/snake.vibe -o snake && ./snake
+;
+; wasd or the arrow keys to steer, q to quit.
+
+<<"std.vibe"
+
+$$ W      s64 = 40
+$$ H      s64 = 20
+$$ CELLS  s64 = (W * H)
+$$ MAXLEN s64 = 800
+$$ BUFSZ  s64 = 4096
+
+$$ TCGETS s64 = 21505          ; 0x5401
+$$ TCSETS s64 = 21506          ; 0x5402
+$$ NOT_ICANON_ECHO u32 = 4294967285   ; ~(ICANON | ECHO)
+
+%TS { sec s64, nsec s64 }
+
+$~ term  [64]u8
+$~ saved [64]u8
+
+$~ body [MAXLEN]s64
+$~ occ  [CELLS]u8
+$~ head s64 = 0
+$~ blen s64 = 0
+$~ dx   s64 = 1
+$~ dy   s64 = 0
+$~ food s64 = 0
+$~ seed u64 = 0
+$~ score s64 = 0
+$~ alive b = 0
+
+$~ out  [BUFSZ]u8
+$~ olen s64 = 0
+
+; ---- output buffer ---------------------------------------------------------
+
+@ emit (c u8) v {
+  ? (olen < BUFSZ) {
+    out[olen] = c
+    olen = (olen + 1)
+  }
+  ^
+}
+
+@ emits (s %Str) v {
+  $~ i s64 = 0
+  * (i < s.n) {
+    emit(s.p[i])
+    i = (i + 1)
+  }
+  ^
+}
+
+@ emitn (x s64) v {
+  ? (x == 0) {
+    emit(`0)
+    ^
+  }
+  $~ buf [24]u8
+  $~ i s64 = 24
+  $~ v s64 = x
+  * (v > 0) {
+    i = (i - 1)
+    buf[i] = u8((`0 + (v % 10)))
+    v = (v / 10)
+  }
+  * (i < 24) {
+    emit(buf[i])
+    i = (i + 1)
+  }
+  ^
+}
+
+@ flush () v {
+  \1(1, &out[0], olen)
+  olen = 0
+  ^
+}
+
+; ---- terminal --------------------------------------------------------------
+
+@ raw_on () v {
+  \16(0, TCGETS, &term[0])
+  cp(&saved[0], &term[0], 64)
+  $ lf *u32 = *u32(&term[12])          ; c_lflag
+  lf' = (lf' & NOT_ICANON_ECHO)
+  term[22] = 0                         ; VTIME
+  term[23] = 0                         ; VMIN: read never blocks
+  \16(0, TCSETS, &term[0])
+  ^
+}
+
+@ raw_off () v {
+  \16(0, TCSETS, &saved[0])
+  ^
+}
+
+; ---- random ----------------------------------------------------------------
+
+@ rnd () u64 {
+  $~ x u64 = seed
+  x = (x ^ (x << 13))
+  x = (x ^ (x >> 7))
+  x = (x ^ (x << 17))
+  seed = x
+  ^ x
+}
+
+; ---- snake -----------------------------------------------------------------
+
+@ push_head (cell s64) v {
+  head = ((head + 1) % MAXLEN)
+  body[head] = cell
+  blen = (blen + 1)
+  occ[cell] = 1
+  ^
+}
+
+@ pop_tail () v {
+  $ t s64 = ((((head - blen) + 1) + MAXLEN) % MAXLEN)
+  occ[body[t]] = 0
+  blen = (blen - 1)
+  ^
+}
+
+@ place_food () v {
+  $~ tries s64 = 0
+  * (tries < 20000) {
+    $ c s64 = s64((rnd() % u64(CELLS)))
+    ? (occ[c] == u8(0)) {
+      food = c
+      ^
+    }
+    tries = (tries + 1)
+  }
+  ^
+}
+
+@ turn (nx s64, ny s64) v {
+  ; refuse to reverse straight into the neck
+  ? (((dx + nx) == 0) && ((dy + ny) == 0)) {
+    ^
+  }
+  dx = nx
+  dy = ny
+  ^
+}
+
+@ poll_input () v {
+  $~ buf [8]u8
+  $ n s64 = \0(0, &buf[0], 8)
+  ? (n <= 0) {
+    ^
+  }
+  $~ i s64 = 0
+  * (i < n) {
+    $ c u8 = buf[i]
+    ? (c == `q) {
+      alive = 0
+    }
+    ? ((c == `w) || (c == `A)) {
+      turn(0, -1)
+    }
+    ? ((c == `s) || (c == `B)) {
+      turn(0, 1)
+    }
+    ? ((c == `a) || (c == `D)) {
+      turn(-1, 0)
+    }
+    ? ((c == `d) || (c == `C)) {
+      turn(1, 0)
+    }
+    i = (i + 1)
+  }
+  ^
+}
+
+@ step () v {
+  $ hcell s64 = body[head]
+  $ nx s64 = ((hcell % W) + dx)
+  $ ny s64 = ((hcell / W) + dy)
+  ? ((nx < 0) || (nx >= W) || (ny < 0) || (ny >= H)) {
+    alive = 0
+    ^
+  }
+  $ ncell s64 = ((ny * W) + nx)
+  ? (occ[ncell] == u8(1)) {
+    alive = 0
+    ^
+  }
+  push_head(ncell)
+  ? (ncell == food) {
+    score = (score + 1)
+    place_food()
+  } : {
+    pop_tail()
+  }
+  ^
+}
+
+; ---- drawing ---------------------------------------------------------------
+
+@ rule () v {
+  $~ x s64 = 0
+  emit(`+)
+  * (x < W) {
+    emit(`-)
+    x = (x + 1)
+  }
+  emit(`+)
+  emit(`\n)
+  ^
+}
+
+@ draw () v {
+  olen = 0
+  emits("\e[H")
+  rule()
+  $~ y s64 = 0
+  * (y < H) {
+    emit(`|)
+    $~ x s64 = 0
+    * (x < W) {
+      $ c s64 = ((y * W) + x)
+      ? (c == food) {
+        emit(`*)
+      } : {
+        ? (occ[c] == u8(1)) {
+          ? (c == body[head]) {
+            emit(`@)
+          } : {
+            emit(`o)
+          }
+        } : {
+          emit(` )
+        }
+      }
+      x = (x + 1)
+    }
+    emit(`|)
+    emit(`\n)
+    y = (y + 1)
+  }
+  rule()
+  emits(" score ")
+  emitn(score)
+  emits("    wasd / arrows to steer, q to quit")
+  emit(`\n)
+  flush()
+  ^
+}
+
+; ---- main ------------------------------------------------------------------
+
+@! () s64 {
+  $~ ts %TS
+  \228(1, &ts)
+  seed = (u64(ts.nsec) | 1)
+
+  raw_on()
+  emits("\e[2J\e[?25l")
+  flush()
+
+  $ start s64 = (((H / 2) * W) + (W / 2))
+  push_head((start - 2))
+  push_head((start - 1))
+  push_head(start)
+  place_food()
+  alive = 1
+
+  * alive {
+    poll_input()
+    ? alive {
+      step()
+    }
+    draw()
+    $~ req %TS = %TS{ sec: 0, nsec: 90000000 }
+    \35(&req, 0)
+  }
+
+  emits("\e[?25h")
+  emits(" game over. score ")
+  emitn(score)
+  emit(`\n)
+  flush()
+  raw_off()
+  ^ 0
+}

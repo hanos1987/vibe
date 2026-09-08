@@ -1,0 +1,91 @@
+; out: primes below 1000000: 78498
+; out: 7
+; out: 2
+; out: 3
+; out: 2
+; exit: 0
+;
+; Every construct exercised here is one the specification claims exists.
+<<"std.vibe"
+
+$$ LIMIT s64 = 1000000
+
+@ count (n s64) s64 {
+  $ p *u8 = mm((n + 1))
+  ? (p == *u8(0)) {
+    ^ -1
+  }
+  $~ i s64 = 2
+  $~ c s64 = 0
+  * (i <= n) {
+    ? (p[i] == u8(0)) {
+      c = (c + 1)
+      $~ j s64 = (i * i)
+      * (j <= n) {
+        p[j] = 1
+        j = (j + i)
+      }
+    }
+    i = (i + 1)
+  }
+  mu(p, (n + 1))
+  ^ c
+}
+
+@ grade (x s64) s64 {
+  ? (x < 10) {
+    ^ 1
+  } : ? (x < 100) {
+    ^ 2
+  } : {
+    ^ 3
+  }
+}
+
+@! () s64 {
+  ps("primes below ")
+  pn(LIMIT)
+  ps(": ")
+  pnl(count(LIMIT))
+
+  ; inferred binding type
+  $ x s64 = 6
+  $ z = (x + 1)
+  pnl(z)
+
+  ; else-if chain
+  pnl(grade(50))
+
+  ; array literal, indexing, and pointer difference
+  $~ a [4]s64 = [10, 20, 30, 40]
+  $ p0 *s64 = &a[0]
+  $ p3 *s64 = &a[3]
+  pnl((p3 - p0))
+
+  ; short-circuit: the right side must not run when the left decides it
+  $~ hit s64 = 0
+  $ never b = ((1 == 2) && (bump(&hit) == 0))
+  ? never { ^ 1 }
+  ? (hit != 0) { ^ 2 }
+
+  ; loop control
+  $~ k s64 = 0
+  $~ seen s64 = 0
+  * (k < 10) {
+    k = (k + 1)
+    ? ((k % 2) == 0) {
+      *>
+    }
+    ? (k > 3) {
+      *<
+    }
+    seen = (seen + 1)
+  }
+  pnl(seen)
+  ^ 0
+}
+
+@ bump (p *s64) s64 {
+  p' = (p' + 1)
+  ^ p'
+}

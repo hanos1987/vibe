@@ -1,0 +1,66 @@
+; out: 7
+; out: 12
+; out: 3
+; out: 55
+; out: 3628800
+; out: 20
+; exit: 0
+;
+; Function pointers: @(T,...)R is the type, @name takes the address.
+<<"std.vibe"
+
+@ add (a s64, b s64) s64 { ^ (a + b) }
+@ mul (a s64, b s64) s64 { ^ (a * b) }
+@ sub (a s64, b s64) s64 { ^ (a - b) }
+
+; higher-order: fold an array with any binary operation
+@ fold (p *s64, n s64, seed s64, op @(s64, s64) s64) s64 {
+  $~ acc s64 = seed
+  $~ i s64 = 0
+  * (i < n) {
+    acc = op(acc, p[i])
+    i = (i + 1)
+  }
+  ^ acc
+}
+
+; a function that returns a function
+@ pick (which s64) @(s64, s64) s64 {
+  ? (which == 0) {
+    ^ @add
+  }
+  ? (which == 1) {
+    ^ @mul
+  }
+  ^ @sub
+}
+
+%Op { name %Str, f @(s64, s64) s64 }
+
+@! () s64 {
+  $ f @(s64, s64) s64 = @add
+  pnl(f(3, 4))
+
+  $ g @(s64, s64) s64 = @mul
+  pnl(g(3, 4))
+
+  ; call the result of a call, directly
+  pnl(pick(2)(10, 7))
+
+  ; dispatch table in a local array of structs
+  $~ tbl [3]%Op
+  tbl[0].f = @add
+  tbl[1].f = @mul
+  tbl[2].f = @sub
+
+  $~ vals [10]s64 = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+  pnl(fold(&vals[0], 10, 0, tbl[0].f))
+  pnl(fold(&vals[0], 10, 1, tbl[1].f))
+
+  ; pointers compare by identity
+  ? (f != @add) { ^ 1 }
+  ? (f == @mul) { ^ 2 }
+
+  pnl(fold(&vals[0], 5, 35, tbl[2].f))
+  ^ 0
+}

@@ -1,0 +1,53 @@
+; exit: 0
+; integer arithmetic, precedence-free grouping, all int widths
+
+@ chk (got s64, want s64) v {
+  ? (got != want) {
+    \1(2, "FAIL\n".p, 5)
+    \60(1)
+  }
+  ^
+}
+
+@! () s64 {
+  chk((2 + 3), 5)
+  chk((2 - 3), -1)
+  chk((6 * 7), 42)
+  chk((7 / 2), 3)
+  chk((7 % 2), 1)
+  chk((-7 / 2), -3)
+  chk((-7 % 2), -1)
+  chk((1 + (2 * 3)), 7)
+  chk(((1 + 2) * 3), 9)
+  chk((1 << 10), 1024)
+  chk((1024 >> 3), 128)
+  chk((12 & 10), 8)
+  chk((12 | 10), 14)
+  chk((12 ^ 10), 6)
+  chk(~0, -1)
+  chk((1 + 2 + 3 + 4), 10)
+
+  ; sized integers wrap at their own width
+  $~ a u8 = 250
+  a = (a + u8(10))
+  chk(s64(a), 4)
+
+  $~ b s8 = 120
+  b = (b + s8(10))
+  chk(s64(b), -126)
+
+  $~ c u16 = 65530
+  c = (c + u16(10))
+  chk(s64(c), 4)
+
+  $ d u32 = 4000000000
+  chk(s64(d), 4000000000)
+
+  ; unsigned vs signed shift and compare
+  $ e u64 = 18446744073709551615
+  chk(s64((e >> 60)), 15)
+  $ g s64 = -1
+  chk((g >> 60), -1)
+
+  ^ 0
+}

@@ -1,0 +1,6 @@
+; err: has no field
+%P { a s64 }
+@! () s64 {
+  $ p %P = %P{ a: 1 }
+  ^ p.zz
+}

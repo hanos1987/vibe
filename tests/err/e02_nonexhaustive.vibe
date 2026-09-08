@@ -1,0 +1,9 @@
+; err: not exhaustive
+%| R { |A(s64), |B }
+@! () s64 {
+  $ r %R = %R|B
+  ?? r {
+    |A(x) { ^ x }
+  }
+  ^ 0
+}

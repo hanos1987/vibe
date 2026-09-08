@@ -1,0 +1,59 @@
+; wc, in VIBE. Counts lines, words and bytes of each file named on the
+; command line. Exercises argv, file i/o and the arena allocator.
+;
+;   vibec examples/wc.vibe -o wc && ./wc file...
+
+<<"std.vibe"
+
+@ report (name %Str, s %Str) v {
+  $~ lines s64 = 0
+  $~ words s64 = 0
+  $~ inw b = 0
+  $~ i s64 = 0
+  * (i < s.n) {
+    $ c u8 = s.p[i]
+    ? (c == `\n) {
+      lines = (lines + 1)
+    }
+    ? ((c == ` ) || (c == `\n) || (c == `\t) || (c == `\r)) {
+      inw = 0
+    } : {
+      ? !inw {
+        words = (words + 1)
+        inw = 1
+      }
+    }
+    i = (i + 1)
+  }
+  pn(lines)
+  pc(`\t)
+  pn(words)
+  pc(`\t)
+  pn(s.n)
+  pc(`\t)
+  ps(name)
+  nl()
+  ^
+}
+
+@! () s64 {
+  ? (argc() < 2) {
+    pe("usage: wc FILE...\n")
+    ^ 2
+  }
+  $~ i s64 = 1
+  $~ bad s64 = 0
+  * (i < argc()) {
+    $ s %Str = fall(argp(i))
+    ? (s.p == *u8(0)) {
+      pe("wc: cannot read ")
+      pe(arg(i))
+      pe("\n")
+      bad = 1
+    } : {
+      report(arg(i), s)
+    }
+    i = (i + 1)
+  }
+  ^ bad
+}

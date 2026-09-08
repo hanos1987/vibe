@@ -1,0 +1,36 @@
+; out: hello VIBE
+; out: -12345
+; out: 0
+; out: 7fff
+; out: 45
+; exit: 0
+<<"std.vibe"
+
+@! () s64 {
+  ps("hello VIBE\n")
+  pnl(-12345)
+  pnl(0)
+  px(32767)
+  nl()
+
+  ; heap through mmap, no libc
+  $ p *u8 = mm(4096)
+  ? (p == *u8(0)) {
+    ^ 1
+  }
+  set(p, `A, 10)
+  $~ i s64 = 0
+  $~ sum s64 = 0
+  * (i < 10) {
+    sum = (sum + s64(p[i]))
+    i = (i + 1)
+  }
+  ; 10 * 'A'(65) = 650
+  ? (sum != 650) {
+    ^ 2
+  }
+  mu(p, 4096)
+
+  pnl(max(min(45, 99), 3))
+  ^ 0
+}

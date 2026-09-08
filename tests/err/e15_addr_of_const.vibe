@@ -1,0 +1,6 @@
+; err: has no address
+$$ N s64 = 10
+@! () s64 {
+  $ p *s64 = &N
+  ^ p'
+}

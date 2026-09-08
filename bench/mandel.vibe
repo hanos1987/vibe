@@ -1,0 +1,37 @@
+; floating point: mandelbrot escape counts over a 900x900 grid
+<<"std.vibe"
+
+@! () s64 {
+  $ w s64 = 900
+  $ h s64 = 900
+  $ maxit s64 = 100
+  $~ total s64 = 0
+
+  $~ py s64 = 0
+  * (py < h) {
+    $~ px s64 = 0
+    * (px < w) {
+      $ cr f64 = ((f64(px) / 300.0) - 2.0)
+      $ ci f64 = ((f64(py) / 300.0) - 1.5)
+      $~ zr f64 = 0.0
+      $~ zi f64 = 0.0
+      $~ it s64 = 0
+      * (it < maxit) {
+        $ zr2 f64 = (zr * zr)
+        $ zi2 f64 = (zi * zi)
+        ? ((zr2 + zi2) > 4.0) {
+          *<
+        }
+        $ t f64 = ((zr2 - zi2) + cr)
+        zi = (((2.0 * zr) * zi) + ci)
+        zr = t
+        it = (it + 1)
+      }
+      total = (total + it)
+      px = (px + 1)
+    }
+    py = (py + 1)
+  }
+  pnl(total)
+  ^ 0
+}

@@ -1,0 +1,8 @@
+packaging/out/
+packaging/apt/
+build/
+*.egg-info/
+__pycache__/
+*.pyc
+*.bin
+bench/*.c

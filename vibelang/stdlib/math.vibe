@@ -1,0 +1,198 @@
+; VIBE floating point maths, written in VIBE. Include it explicitly:
+;
+;   <<"math.vibe"
+;
+; `lg` is the natural logarithm. (`ln` in std.vibe is byte-string length.)
+
+<<"std.vibe"
+
+$ M_PI  f64 = 3.141592653589793
+$ M_TAU f64 = 6.283185307179586
+$ M_E   f64 = 2.718281828459045
+$ M_LN2 f64 = 0.6931471805599453
+
+@ fabs (x f64) f64 {
+  ? (x < 0.0) {
+    ^ -x
+  }
+  ^ x
+}
+
+@ floor (x f64) f64 {
+  $ i f64 = f64(s64(x))
+  ? (i > x) {
+    ^ (i - 1.0)
+  }
+  ^ i
+}
+
+@ ceil (x f64) f64 {
+  $ i f64 = f64(s64(x))
+  ? (i < x) {
+    ^ (i + 1.0)
+  }
+  ^ i
+}
+
+@ fmod (x f64, y f64) f64 {
+  ? (y == 0.0) {
+    ^ 0.0
+  }
+  $ q f64 = f64(s64((x / y)))
+  ^ (x - (q * y))
+}
+
+@ fmin (a f64, b f64) f64 {
+  ? (a < b) {
+    ^ a
+  }
+  ^ b
+}
+
+@ fmax (a f64, b f64) f64 {
+  ? (a > b) {
+    ^ a
+  }
+  ^ b
+}
+
+; Newton's method; converges well inside f64 precision in 40 steps
+@ sqrt (x f64) f64 {
+  ? (x <= 0.0) {
+    ^ 0.0
+  }
+  $~ g f64 = x
+  $~ i s64 = 0
+  * (i < 40) {
+    g = ((g + (x / g)) / 2.0)
+    i = (i + 1)
+  }
+  ^ g
+}
+
+; e^x by range reduction to [-ln2/2, ln2/2] then a Taylor series
+@ exp (x f64) f64 {
+  ? (x > 709.0) {
+    ^ 1.0e308
+  }
+  ? (x < -745.0) {
+    ^ 0.0
+  }
+  $ k s64 = s64(floor(((x / M_LN2) + 0.5)))
+  $ r f64 = (x - (f64(k) * M_LN2))
+  $~ term f64 = 1.0
+  $~ sum f64 = 1.0
+  $~ i s64 = 1
+  * (i < 18) {
+    term = ((term * r) / f64(i))
+    sum = (sum + term)
+    i = (i + 1)
+  }
+  $~ res f64 = sum
+  $~ j s64 = 0
+  ? (k > 0) {
+    * (j < k) {
+      res = (res * 2.0)
+      j = (j + 1)
+    }
+  } : {
+    * (j < -k) {
+      res = (res / 2.0)
+      j = (j + 1)
+    }
+  }
+  ^ res
+}
+
+; natural logarithm, by mantissa/exponent split and an atanh series
+@ lg (x f64) f64 {
+  ? (x <= 0.0) {
+    ^ -1.0e308
+  }
+  $~ m f64 = x
+  $~ k s64 = 0
+  * (m >= 2.0) {
+    m = (m / 2.0)
+    k = (k + 1)
+  }
+  * (m < 1.0) {
+    m = (m * 2.0)
+    k = (k - 1)
+  }
+  $ z f64 = ((m - 1.0) / (m + 1.0))
+  $ z2 f64 = (z * z)
+  $~ t f64 = z
+  $~ sum f64 = z
+  $~ i s64 = 1
+  * (i < 24) {
+    t = (t * z2)
+    sum = (sum + (t / f64(((2 * i) + 1))))
+    i = (i + 1)
+  }
+  ^ ((2.0 * sum) + (f64(k) * M_LN2))
+}
+
+@ log10 (x f64) f64 {
+  ^ (lg(x) / 2.302585092994046)
+}
+
+@ sin (x f64) f64 {
+  $~ r f64 = fmod(x, M_TAU)
+  ? (r > M_PI) {
+    r = (r - M_TAU)
+  }
+  ? (r < -M_PI) {
+    r = (r + M_TAU)
+  }
+  $ r2 f64 = (r * r)
+  $~ term f64 = r
+  $~ sum f64 = r
+  $~ i s64 = 1
+  * (i < 14) {
+    $ d f64 = f64(((2 * i) * ((2 * i) + 1)))
+    term = (((-term) * r2) / d)
+    sum = (sum + term)
+    i = (i + 1)
+  }
+  ^ sum
+}
+
+@ cos (x f64) f64 {
+  ^ sin(((M_PI / 2.0) - x))
+}
+
+@ tan (x f64) f64 {
+  $ c f64 = cos(x)
+  ? (c == 0.0) {
+    ^ 0.0
+  }
+  ^ (sin(x) / c)
+}
+
+@ pow (x f64, y f64) f64 {
+  ? (y == 0.0) {
+    ^ 1.0
+  }
+  ? (x == 0.0) {
+    ^ 0.0
+  }
+  ? (x < 0.0) {
+    ; only integer exponents are defined for a negative base
+    $ n s64 = s64(y)
+    $~ r f64 = 1.0
+    $~ i s64 = 0
+    * (i < abs(n)) {
+      r = (r * x)
+      i = (i + 1)
+    }
+    ? (n < 0) {
+      ^ (1.0 / r)
+    }
+    ^ r
+  }
+  ^ exp((y * lg(x)))
+}
+
+@ hypot (a f64, b f64) f64 {
+  ^ sqrt(((a * a) + (b * b)))
+}

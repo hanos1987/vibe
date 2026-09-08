@@ -1,0 +1,6 @@
+; err: immutable
+$ cap s64 = 10
+@! () s64 {
+  cap = 20
+  ^ cap
+}

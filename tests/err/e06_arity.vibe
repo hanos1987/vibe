@@ -1,0 +1,5 @@
+; err: takes 2 argument
+@ f (a s64, b s64) s64 { ^ (a + b) }
+@! () s64 {
+  ^ f(1)
+}

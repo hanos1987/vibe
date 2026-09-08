@@ -1,0 +1,6 @@
+; err: cannot be assigned
+$$ N s64 = 10
+@! () s64 {
+  N = 20
+  ^ N
+}

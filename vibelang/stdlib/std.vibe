@@ -1,0 +1,188 @@
+; VIBE standard library, written in VIBE.
+; Nothing here is built into the compiler: it is ordinary VIBE talking to the
+; kernel through the \N syscall form. No libc.
+
+<<"sys.vibe"
+
+; ---- process ---------------------------------------------------------------
+
+@ ex (c s64) v {
+  \60(c)
+  ^
+}
+
+; ---- raw byte i/o ----------------------------------------------------------
+
+@ wr (fd s64, p *u8, n s64) s64 {
+  ^ \1(fd, p, n)
+}
+
+@ rd (fd s64, p *u8, n s64) s64 {
+  ^ \0(fd, p, n)
+}
+
+; ---- text output -----------------------------------------------------------
+
+@ ps (s %Str) v {
+  \1(1, s.p, s.n)
+  ^
+}
+
+@ pe (s %Str) v {
+  \1(2, s.p, s.n)
+  ^
+}
+
+@ pc (c u8) v {
+  $~ b u8 = c
+  \1(1, &b, 1)
+  ^
+}
+
+@ nl () v {
+  pc(`\n)
+  ^
+}
+
+; signed decimal
+@ pn (x s64) v {
+  $~ buf [24]u8
+  $~ i s64 = 24
+  $~ v s64 = x
+  $~ ng b = 0
+  ? (v < 0) {
+    ng = 1
+    v = -v
+  }
+  ? (v == 0) {
+    i = (i - 1)
+    buf[i] = `0
+  } : {
+    * (v > 0) {
+      i = (i - 1)
+      buf[i] = u8((`0 + (v % 10)))
+      v = (v / 10)
+    }
+  }
+  ? ng {
+    i = (i - 1)
+    buf[i] = `-
+  }
+  \1(1, &buf[i], (24 - i))
+  ^
+}
+
+; signed decimal followed by a newline
+@ pnl (x s64) v {
+  pn(x)
+  nl()
+  ^
+}
+
+; lowercase hex, no prefix
+@ px (x u64) v {
+  $~ buf [16]u8
+  $~ i s64 = 16
+  $~ v u64 = x
+  ? (v == 0) {
+    i = (i - 1)
+    buf[i] = `0
+  }
+  * (v > 0) {
+    $ d s64 = s64((v & 15))
+    i = (i - 1)
+    ? (d < 10) {
+      buf[i] = u8((`0 + d))
+    } : {
+      buf[i] = u8((87 + d))
+    }
+    v = (v >> 4)
+  }
+  \1(1, &buf[i], (16 - i))
+  ^
+}
+
+; ---- memory ----------------------------------------------------------------
+
+; anonymous private mapping; returns 0 on failure
+@ mm (n s64) *u8 {
+  $ r s64 = \9(0, n, 3, 34, -1, 0)
+  ? (r < 0) {
+    ^ *u8(0)
+  }
+  ^ *u8(r)
+}
+
+@ mu (p *u8, n s64) v {
+  \11(p, n)
+  ^
+}
+
+@ cp (d *u8, s *u8, n s64) v {
+  $~ i s64 = 0
+  * (i < n) {
+    d[i] = s[i]
+    i = (i + 1)
+  }
+  ^
+}
+
+@ set (d *u8, c u8, n s64) v {
+  $~ i s64 = 0
+  * (i < n) {
+    d[i] = c
+    i = (i + 1)
+  }
+  ^
+}
+
+; ---- bytes and strings -----------------------------------------------------
+
+@ ln (p *u8) s64 {
+  $~ i s64 = 0
+  * (p[i] != u8(0)) {
+    i = (i + 1)
+  }
+  ^ i
+}
+
+@ beq (a *u8, b *u8, n s64) b {
+  $~ i s64 = 0
+  * (i < n) {
+    ? (a[i] != b[i]) {
+      ^ 0
+    }
+    i = (i + 1)
+  }
+  ^ 1
+}
+
+@ seq (a %Str, b %Str) b {
+  ? (a.n != b.n) {
+    ^ 0
+  }
+  ^ beq(a.p, b.p, a.n)
+}
+
+; ---- integer helpers -------------------------------------------------------
+
+@ abs (x s64) s64 {
+  ? (x < 0) {
+    ^ -x
+  }
+  ^ x
+}
+
+@ min (a s64, b s64) s64 {
+  ? (a < b) {
+    ^ a
+  }
+  ^ b
+}
+
+@ max (a s64, b s64) s64 {
+  ? (a > b) {
+    ^ a
+  }
+  ^ b
+}

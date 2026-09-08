@@ -1,0 +1,4 @@
+; err: unknown name
+@! () s64 {
+  ^ nope
+}

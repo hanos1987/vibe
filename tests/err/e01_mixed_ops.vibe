@@ -1,0 +1,4 @@
+; err: no operator precedence
+@! () s64 {
+  ^ (1 + 2 * 3)
+}

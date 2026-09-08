@@ -1,0 +1,100 @@
+; out: 832040
+; out: 3628800
+; out: 4950
+; out: 30
+; exit: 0
+<<"std.vibe"
+
+%Pt { x s64, y s64 }
+%Box { lo %Pt, hi %Pt }
+
+$~ counter s64 = 100
+$~ table [16]s64
+
+@ fib (n s64) s64 {
+  ? (n < 2) {
+    ^ n
+  }
+  ^ (fib((n - 1)) + fib((n - 2)))
+}
+
+@ fact (n s64) s64 {
+  ? (n <= 1) {
+    ^ 1
+  }
+  ^ (n * fact((n - 1)))
+}
+
+; returns an aggregate by value
+@ mkbox (n s64) %Box {
+  ^ %Box{ lo: %Pt{ x: 0, y: 0 }, hi: %Pt{ x: n, y: (n * 2) } }
+}
+
+; mutate through a pointer
+@ bump (p *s64, by s64) v {
+  p' = (p' + by)
+  ^
+}
+
+@ sum_arr (p *s64, n s64) s64 {
+  $~ i s64 = 0
+  $~ s s64 = 0
+  * (i < n) {
+    s = (s + p[i])
+    i = (i + 1)
+  }
+  ^ s
+}
+
+@! () s64 {
+  pnl(fib(30))
+  pnl(fact(10))
+
+  ; 100 element sum 0..99 via mmap'd array
+  $ raw *u8 = mm(4096)
+  $ arr *s64 = *s64(raw)
+  $~ i s64 = 0
+  * (i < 100) {
+    arr[i] = i
+    i = (i + 1)
+  }
+  pnl(sum_arr(arr, 100))
+  mu(raw, 4096)
+
+  ; pointer mutation
+  $~ k s64 = 10
+  bump(&k, 20)
+  pnl(k)
+
+  ; globals
+  ? (counter != 100) { ^ 1 }
+  counter = (counter + 1)
+  ? (counter != 101) { ^ 2 }
+  bump(&counter, 9)
+  ? (counter != 110) { ^ 3 }
+
+  ; global array
+  table[3] = 77
+  ? (table[3] != 77) { ^ 4 }
+  ? (table[4] != 0) { ^ 5 }
+
+  ; nested struct returned by value
+  $ bx %Box = mkbox(7)
+  ? (bx.hi.y != 14) { ^ 6 }
+  ? (bx.lo.x != 0) { ^ 7 }
+
+  ; local array of structs
+  $~ pts [4]%Pt
+  pts[2].x = 5
+  pts[2].y = 6
+  ? ((pts[2].x + pts[2].y) != 11) { ^ 8 }
+  ? (pts[0].x != 0) { ^ 9 }
+
+  ; address arithmetic on a struct pointer
+  $ pp *%Pt = &pts[2]
+  ? (pp.x != 5) { ^ 10 }
+  pp.y = 9
+  ? (pts[2].y != 9) { ^ 11 }
+
+  ^ 0
+}

@@ -1,0 +1,63 @@
+; out: ok 42
+; out: err 7
+; out: none
+; exit: 0
+<<"std.vibe"
+
+%| Res {
+  |Ok(s64)
+  |Err(s64)
+  |None
+}
+
+%Pair { a s64, b s64 }
+
+%| Shape {
+  |Dot
+  |Line(s64, s64)
+  |Box(%Pair)
+}
+
+@ divide (a s64, b s64) %Res {
+  ? (b == 0) {
+    ^ %Res|Err(7)
+  }
+  ^ %Res|Ok((a / b))
+}
+
+@ show (r %Res) v {
+  ?? r {
+    |Ok(v) {
+      ps("ok ")
+      pnl(v)
+    }
+    |Err(c) {
+      ps("err ")
+      pnl(c)
+    }
+    |None {
+      ps("none\n")
+    }
+  }
+  ^
+}
+
+@ area (s %Shape) s64 {
+  ?? s {
+    |Dot { ^ 0 }
+    |Line(a, b) { ^ (b - a) }
+    |Box(p) { ^ (p.a * p.b) }
+  }
+  ^ -1
+}
+
+@! () s64 {
+  show(divide(84, 2))
+  show(divide(1, 0))
+  show(%Res|None)
+
+  ? (area(%Shape|Dot) != 0) { ^ 1 }
+  ? (area(%Shape|Line(3, 10)) != 7) { ^ 2 }
+  ? (area(%Shape|Box(%Pair{ a: 6, b: 7 })) != 42) { ^ 3 }
+  ^ 0
+}

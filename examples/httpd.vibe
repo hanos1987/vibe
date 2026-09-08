@@ -1,0 +1,54 @@
+; A tiny HTTP server in VIBE. Sockets straight through the syscall form,
+; no libc, no framework.
+;
+;   vibec examples/httpd.vibe -o httpd
+;   ./httpd 8080          serve until interrupted
+;   ./httpd 8080 3        serve exactly three requests, then exit
+
+<<"std.vibe"
+
+$$ PORT s64 = 8080
+
+@ serve (c s64) v {
+  $~ req [2048]u8
+  \0(c, &req[0], 2048)
+  $ hdr %Str = "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nConnection: close\r\n\r\n"
+  $ body %Str = "<!doctype html><title>vibe</title><h1>served by VIBE</h1>\n"
+  \1(c, hdr.p, hdr.n)
+  \1(c, body.p, body.n)
+  fc(c)
+  ^
+}
+
+@! () s64 {
+  $~ port s64 = PORT
+  ? (argc() > 1) {
+    port = nat(arg(1))
+  }
+  $~ limit s64 = -1
+  ? (argc() > 2) {
+    limit = nat(arg(2))
+  }
+
+  $ fd s64 = srv(port)
+  ? (fd < 0) {
+    pe("httpd: cannot bind port ")
+    pn(port)
+    pe("\n")
+    ^ 1
+  }
+  ps("httpd listening on port ")
+  pnl(port)
+
+  $~ served s64 = 0
+  * ((limit < 0) || (served < limit)) {
+    $ c s64 = acc(fd)
+    ? (c < 0) {
+      *<
+    }
+    serve(c)
+    served = (served + 1)
+  }
+  fc(fd)
+  ^ 0
+}
