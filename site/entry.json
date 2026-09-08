@@ -1,0 +1,14 @@
+{
+  "name": "VIBE",
+  "tagline": "A programming language made of sigils.",
+  "desc": "No keywords in any human language. Compiles straight to x86-64 machine code with no assembler, no linker and no libc — a hello-world binary is 2 KB and depends on nothing.",
+  "category": "developer",
+  "categoryLabel": "Developer Tools",
+  "badge": { "text": "New", "cls": "new" },
+  "icon": "icon.svg",
+  "iconBg": "linear-gradient(135deg,#f2a93b,#1b2242)",
+  "url": "/apps/vibe/",
+  "learnMoreUrl": "https://github.com/hanos1987/vibe",
+  "price": "Free",
+  "cta": "Install"
+}

@@ -1,4 +1,14 @@
-<title>VIBE</title>
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="VIBE is a systems language with no natural-language keywords, compiled straight to x86-64 machine code. No assembler, no linker, no libc.">
+<meta property="og:title" content="VIBE">
+<meta property="og:description" content="VIBE is a systems language with no natural-language keywords, compiled straight to x86-64 machine code. No assembler, no linker, no libc.">
+<meta property="og:type" content="website">
+<title>VIBE &mdash; a programming language made of sigils</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='22' fill='%230f1426'/%3E%3Ctext x='50' y='68' font-size='54' text-anchor='middle' fill='%23f2a93b' font-family='monospace' font-weight='bold'%3E@!%3C/text%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&family=JetBrains+Mono:wght@400;500;700&display=swap">
@@ -432,11 +442,19 @@
     * { transition: none !important; animation: none !important; }
   }
 </style>
-
+<style>
+  html { color-scheme: dark; }
+  body { margin: 0; }
+  img { max-width: 100%; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
 <header class="top">
   <div class="wrap top-in">
     <div class="brand"><span class="sig">@!</span> VIBE</div>
     <nav class="top-links">
+      <a href="/" class="home">&larr; benjiapps</a>
       <a href="#install">Install</a>
       <a href="#language">Language</a>
       <a href="#speed">Speed</a>
@@ -803,3 +821,5 @@ cd vibe
     });
   })();
 </script>
+</body>
+</html>
