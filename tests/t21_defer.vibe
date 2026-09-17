@@ -1,0 +1,47 @@
+; ~ defers a statement to scope exit, on every path out
+; out: body
+; out: second
+; out: first
+; out: 7
+; out: i0 d0 i1 d1 i2 brk d2 end
+; out: early cleanup 1
+<<"std.vibe"
+
+$~ g s64 = 0
+
+@ f () s64 {
+  ~ ps("first\n")
+  ~ ps("second\n")
+  g = 7
+  ~ g = 0
+  ps("body\n")
+  ^ g
+}
+
+@ early (x s64) s64 {
+  ~ ps("cleanup ")
+  ? x > 0 {
+    ps("early ")
+    ^ 1
+  }
+  ^ 0
+}
+
+@! () s64 {
+  pnl(f())
+  * i 0 5 {
+    ~ ps(" ")
+    ps("i")
+    pn(i)
+    ps(" ")
+    ~ pn(i)
+    ~ ps("d")
+    ? i == 2 {
+      ps("brk ")
+      *<
+    }
+  }
+  ps("end\n")
+  pnl(early(1))
+  ^ 0
+}

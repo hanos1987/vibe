@@ -402,6 +402,7 @@ class Front:
         self.cur_ret = sig.ret
         self.scope = Scope()
         self.loops = []
+        self.defers = [[]]
         taken = self.addr_taken(d.body)
 
         if sret:
@@ -440,6 +441,7 @@ class Front:
         if sig.ret != VOID and not self.returns(d.body):
             self.err(d, "function %r can reach its end without returning "
                         "a %s" % (d.name, sig.ret))
+        self.run_defers(0)
         # implicit return for void functions
         if sig.ret == VOID:
             f.emit("ret", None, False)
@@ -454,9 +456,23 @@ class Front:
     def block(self, stmts):
         saved = self.scope
         self.scope = Scope(saved)
+        self.defers.append([])
         for s in stmts:
             self.stmt(s)
+        self.run_defers(len(self.defers) - 1)
+        self.defers.pop()
         self.scope = saved
+
+    def run_defers(self, down_to):
+        """Emit the deferred statements of every open scope from the
+        innermost down to index down_to, newest first."""
+        pending = self.defers
+        for k in range(len(pending) - 1, down_to - 1, -1):
+            for d in reversed(pending[k]):
+                # a deferred statement sees no defers of its own
+                self.defers = pending[:k] + [[]]
+                self.stmt(d)
+        self.defers = pending
 
     def returns(self, stmts):
         """True when control cannot fall out of the bottom of stmts."""
@@ -580,14 +596,22 @@ class Front:
             if s.value is None:
                 if self.cur_ret != VOID:
                     self.err(s, "this function must return %s" % self.cur_ret)
+                self.run_defers(0)
                 f.emit("ret", None, False)
                 return
             v, vt = self.rval(s.value, self.cur_ret)
             self.assignable(s, self.cur_ret, vt)
             if self.cur_ret.is_agg:
                 f.emit("memcpy", self.cur_sret, v, self.cur_ret.size)
+                self.run_defers(0)
                 f.emit("ret", self.cur_sret, False)
             else:
+                if any(self.defers):
+                    # the value is fixed before the deferred code runs
+                    keep = f.vreg(self.cur_ret.kind == "float")
+                    f.emit("mov", keep, v)
+                    v = keep
+                self.run_defers(0)
                 f.emit("ret", v, self.cur_ret.kind == "float")
             return
 
@@ -620,7 +644,7 @@ class Front:
                 self.err(s, "loop condition must be b, got %s" % ct)
             f.emit("br", c, lb, lx)
             f.emit("label", lb)
-            self.loops.append((lc, lx))
+            self.loops.append((lc, lx, len(self.defers)))
             self.block(s.body)
             self.loops.pop()
             f.emit("jmp", lc)
@@ -659,7 +683,7 @@ class Front:
             f.emit("cmp", c, "<", iv, hv, lt.signed)
             f.emit("br", c, lb, lx)
             f.emit("label", lb)
-            self.loops.append((ls, lx))
+            self.loops.append((ls, lx, len(self.defers)))
             self.block(s.body)
             self.loops.pop()
             f.emit("jmp", ls)
@@ -674,15 +698,21 @@ class Front:
             self.scope = saved
             return
 
+        if isinstance(s, A.Defer):
+            self.defers[-1].append(s.stmt)
+            return
+
         if isinstance(s, A.Break):
             if not self.loops:
                 self.err(s, "*< outside a loop")
+            self.run_defers(self.loops[-1][2])
             f.emit("jmp", self.loops[-1][1])
             return
 
         if isinstance(s, A.Continue):
             if not self.loops:
                 self.err(s, "*> outside a loop")
+            self.run_defers(self.loops[-1][2])
             f.emit("jmp", self.loops[-1][0])
             return
 
@@ -760,8 +790,11 @@ class Front:
                         f.emit("load", bv, pa, bty.size, bty.kind == "int" and bty.signed,
                                bty.kind == "float")
                         self.scope.put(bname, ("vreg", bv, bty, False))
+            self.defers.append([])
             for st in body:
                 self.stmt(st)
+            self.run_defers(len(self.defers) - 1)
+            self.defers.pop()
             self.scope = saved
             f.emit("jmp", lx)
         f.emit("label", lx)

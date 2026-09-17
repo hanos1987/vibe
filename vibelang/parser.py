@@ -316,6 +316,14 @@ class Parser:
             self.end_stmt()
             return A.Let(name, ty, init, mut, line=t.line, col=t.col)
 
+        if self.at("~"):
+            # a statement cannot begin with bitwise-not, so this is defer
+            self.next()
+            if self.at("~", "$", "$~", "^", "*<", "*>"):
+                self.err("~ defers a call or an assignment")
+            inner = self.parse_stmt()
+            return A.Defer(inner, line=t.line, col=t.col)
+
         if self.at("^"):
             self.next()
             val = None

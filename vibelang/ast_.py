@@ -52,6 +52,7 @@ Return = _mk("Return", ["value"])
 If = _mk("If", ["cond", "then", "els"])
 While = _mk("While", ["cond", "body"])
 For = _mk("For", ["name", "lo", "hi", "body"])     # * i lo hi { }
+Defer = _mk("Defer", ["stmt"])                  # ~ stmt
 Break = _mk("Break", [])
 Continue = _mk("Continue", [])
 Match = _mk("Match", ["subject", "arms"])   # arms: [(Pattern, [stmt])]
