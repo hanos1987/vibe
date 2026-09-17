@@ -1,17 +1,19 @@
-# VIBE — Language Specification v0.1
+# VIBE — Language Specification v0.2
 
 VIBE is a systems language with **no natural-language keywords**. Every
 construct is a sigil. It compiles straight to x86-64 machine code: `vibec`
 writes the ELF bytes itself, with no assembler, no linker, no C library and
-no runtime.
+no runtime. A second backend, `--backend=c`, hands the same program to
+gcc or clang at `-O3` for release builds that run as fast as C.
 
 It is designed to be written by a model. The three rules below exist because
 they remove the ambiguities that generated code gets wrong most often.
 
 **Rule 1 — There is no operator precedence.**
-`(1 + 2 * 3)` is a compile error. Write `(1 + (2 * 3))`. Every mixed-operator
-expression must be parenthesised, so an expression means exactly what its
-shape says.
+`1 + 2 * 3` is a compile error. Write `1 + (2 * 3)`. Two *different*
+operators never share a level, so an expression means exactly what its shape
+says. A level with one operator needs no parentheses of its own: `^ a + b`,
+`? i < n {`, `f(i * 2, 1)` are all fine.
 
 **Rule 2 — There are no implicit conversions.**
 `s64 + s32` is a compile error. Widths are converted only when you write
@@ -38,15 +40,22 @@ The whole language, in one table.
 | `$~` | mutable binding | `$~ x s64 = 1` |
 | `$$` | compile-time constant | `$$ N s64 = 64` |
 | `=` | assignment | `x = 2` |
+| `+=` `-=` `*=` `/=` `%=` `&=` `\|=` `^=` `<<=` `>>=` | compound assignment | `t += 1` |
 | `^` | return (bare `^` returns from a `v` function) | `^ x` |
 | `?` `:` | if / else | `? c { } : { }` |
 | `??` `\|` | match / arm | `?? r { \|Ok(v) { } \|Err { } }` |
 | `_` | wildcard arm (must be last) | `\|_ { }` |
-| `*` | loop while | `* (i < n) { }` |
+| `*` | loop while | `* i < n { }` |
+| `* i a b` | counted loop, `i` from `a` up to but not including `b` | `* i 0 n { }` |
+| `~` | defer a statement to scope exit | `~ fc(fd)` |
 | `*<` | break | `*<` |
 | `*>` | continue | `*>` |
 | `\N` | syscall number N | `\1(1, p, n)` |
+| `\name` | compiler intrinsic | `\sqrt(x)`, `\cas(&v, 0, 1)` |
 | `\\[..]` | inline machine code bytes | `\\[0x90]` |
+| `@<` | declare a C function | `@< "m" pow (f64, f64) f64` |
+| `<T>` | type parameters and arguments | `%Vec<T> { }`, `@ push<T> (...)`, `%Vec<s64>` |
+| `<<"f" ns` | include under a namespace | `<<"geom.vibe" g` then `g.area(p)` |
 | `&` | address of | `&x` |
 | `'` | dereference (postfix) | `p'` |
 | `.` | field | `p.x` |
@@ -125,12 +134,23 @@ $~ table  [16]s64                   ; no value given: zero-initialised
 }
 ```
 
-A global initialiser must be a compile-time constant, and only scalar
-globals may have one; aggregates start zeroed. `$$` constants are inlined at
+A global initialiser must be a compile-time constant: a scalar, or an array
+or struct literal built from constants, string literals and `@function`
+addresses. That is enough for lookup tables, message tables and dispatch
+tables:
+
+```
+$ days [12]u8 = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+$ names [2]%Str = ["off", "on"]
+$ cmds [2]%Cmd = [%Cmd{ name: "dbl", run: @dbl }, %Cmd{ name: "neg", run: @neg }]
+```
+
+A short array literal leaves the rest zeroed. `$$` constants are inlined at
 every use, have no address, and may be built from other `$$` constants and
 from `#T`.
 
-Functions take at most 6 parameters in v0.1.
+Functions take any number of parameters. A function with a return type
+must return on every path; falling off the end is a compile error.
 
 ---
 
@@ -157,8 +177,12 @@ s.field = 7              ; into a struct
 ? c { } : ? d { } : { }  ; else-if chains
 
 * c { }                  ; loop while c
+* i 0 n { }              ; counted: i = 0, 1, ... n-1   (n is read once)
 *<                       ; break
-*>                       ; continue
+*>                       ; continue (in a counted loop: on to the next i)
+
+x += 1                   ; compound assignment: + - * / % & | ^ << >>
+~ fc(fd)                 ; defer: runs when the enclosing block exits
 
 ?? subject { |A(x) { } |B { } }     ; match
 
@@ -167,8 +191,34 @@ f(1, 2)                  ; call as a statement
 \\[0x0f, 0x05]           ; raw machine code bytes
 ```
 
-A binding is visible from its line to the end of the enclosing block. Inner
-blocks may not shadow a name bound in the same block.
+A binding is visible from its line to the end of the enclosing block. A
+name may not be bound twice in one block.
+
+The counted loop `* i a b { }` binds `i` for the body only. `a` is a bare
+name or number; `b` is a single operand, so parenthesise an
+expression: `* i 2 (n + 1) { }`. Both must have the same integer
+type (a literal takes the type of the other), and `i` has that type.
+
+The target of a compound assignment is evaluated twice, so it may not
+contain a call: `a[f()] += 1` is rejected.
+
+`~ stmt` defers a call or an assignment. Deferred statements run in reverse
+order when their block exits by any route: falling off the end, `^`, `*<` or
+`*>`. A returned value is computed *before* the deferred statements run.
+
+```
+@ load (path *u8) s64 {
+  $ fd s64 = fo(path, O_RDONLY, 0)
+  ? fd < 0 {
+    ^ -1
+  }
+  ~ fc(fd)                 ; closed on every return below
+  ...
+}
+```
+
+The `:` of an else may follow the closing brace on the same line or start
+the next line.
 
 Conditions must have type `b`. There is no truthiness: write `(x != 0)`.
 
@@ -190,11 +240,15 @@ unary        -e   ~e (bitwise not)   !e (logical not, b)
 unparenthesised binary expressions:
 
 ```
-(1 + (2 * 3))        ; fine
-(1 + 2 + 3)          ; fine: a chain of one associative operator
-(1 + 2 * 3)          ; error: mixed operators need parentheses
-(a < b < c)          ; error: comparisons never chain
+1 + (2 * 3)          ; fine
+1 + 2 + 3            ; fine: a chain of one associative operator
+1 + 2 * 3            ; error: mixed operators need parentheses
+a < b < c            ; error: comparisons never chain
+10 - 3 - 2           ; error: - / % << >> do not chain either
 ```
+
+Only `+ * & | ^ && ||` chain, because only for them does grouping not
+matter.
 
 ### Conversions
 
@@ -209,7 +263,8 @@ $ c s64 = (a + s64(b))
 
 Two exceptions, both safe and unambiguous:
 
-* An integer **literal** takes the type it is used at: `$ x u8 = 200`.
+* A **literal** takes the type it is used at: `$ x u8 = 200`, `5 == x`,
+  `$ h f64 = 5`, `h * 2`. It must fit: `$ x u8 = 300` is an error.
 * An **array decays to a pointer** where a pointer is expected:
   passing `[16]u8` to a `*u8` parameter is fine.
 
@@ -222,6 +277,11 @@ Two exceptions, both safe and unambiguous:
   element. `(p - q)` on two pointers yields the element count as `s64`.
 * `&&` and `||` do not evaluate their right operand unless they must.
 * Comparing two pointers is allowed; mixing pointer and integer is not.
+* `==` and `!=` on two `%Str` compare the bytes (it calls `seq`, so
+  `std.vibe` must be included). On any other struct they are an error.
+* Float comparisons follow IEEE 754: every comparison with a NaN is false
+  except `!=`. `-x` flips the sign bit, so `-(0.0)` is `-0.0`.
+* `b(x)` is `x != 0`.
 
 ### Postfix and prefix forms
 
@@ -333,7 +393,110 @@ checked; the register allocator does not know what they touch.
 
 ---
 
-## 8. Standard library
+### Intrinsics
+
+`\name(...)` is an operation the compiler emits directly, usually as one
+instruction.
+
+| Intrinsic | Type | Meaning |
+|---|---|---|
+| `\sqrt(x)` | `f64 -> f64`, `f32 -> f32` | hardware square root |
+| `\bits(x)` `\fbits(u)` | `f64 -> u64`, `u64 -> f64` | reinterpret the bits |
+| `\popcnt(x)` `\clz(x)` `\ctz(x)` | 64-bit int | bit counts (`clz`/`ctz` of 0 is 64) |
+| `\bswap(x)` | 64-bit int | reverse the bytes |
+| `\rdtsc()` | `u64` | CPU timestamp counter |
+| `\cas(p, old, new)` | `b` | atomic compare-and-swap of the 64-bit cell at `p` |
+| `\xadd(p, d)` | old value | atomic fetch-and-add |
+| `\load(p)` `\store(p, x)` | 64-bit cell | access memory another thread may change |
+| `\pause()` | `v` | spin-wait hint |
+| `\clone(f, arg, top, tid)` | `s64` | start a kernel thread; use `spawn` from `thread.vibe` |
+
+`\popcnt`, `\clz` and `\ctz` need a CPU from about 2013 on (Haswell / Zen).
+
+### Calling C
+
+```
+@< "c" printf (fmt *u8, ...) s32
+@< "m" pow (f64, f64) f64
+
+@! () s64 {
+  printf("%lld %.2f\n".p, 42, pow(2.0, 0.5))
+  ^ 0
+}
+```
+
+`@< "lib" name (types) ret` declares a function from a C library; `"c"` is
+libc, anything else is linked with `-l<lib>`. Parameter names are optional.
+Arguments and results are scalars and pointers. After `...`, integers and
+pointers are passed as 64-bit and floats as `f64`. Pass `s.p`, never a
+`%Str`; string literals are NUL-terminated for exactly this purpose. A
+program that declares C functions is built through the C backend and linked
+against the C runtime automatically.
+
+---
+
+## 8. Generics
+
+Types and functions may take type parameters. Each distinct set of type
+arguments gets its own compiled copy, so generic code costs nothing at run
+time.
+
+```
+%Vec<T> { p *T, n s64, cap s64 }
+
+%| Opt<T> {
+  |Some(T)
+  |None
+}
+
+@ push<T> (w *%Vec<T>, x T) v {
+  ...
+  w.p[w.n] = x
+  w.n += 1
+}
+
+@ last<T> (w *%Vec<T>) %Opt<T> {
+  ? w.n == 0 {
+    ^ %Opt|None                   ; type arguments come from the return type
+  }
+  ^ %Opt|Some(w.p[w.n - 1])
+}
+
+@! () s64 {
+  $~ a %Vec<s64> = vnew()         ; T from the expected type
+  push(&a, 10)                    ; T from the argument
+  $~ f = vnew<f64>()              ; or stated outright
+  ^ 0
+}
+```
+
+Type arguments are inferred from the non-literal arguments and from the type
+the context expects; if that is not enough, write them: `f<s64>(...)`.
+Inside a generic, `T(x)` is a cast to `T` and `#T` is its size. A generic
+struct or sum literal may omit its arguments where the expected type
+supplies them (`%Vec{ ... }`, `%Opt|None`).
+
+---
+
+## 9. Namespaces
+
+```
+<<"geom.vibe" g
+
+$ p %g.Pt = %g.Pt{ x: 1, y: 2 }
+pnl(g.area(p))
+$ f @(%g.Pt) s64 = @g.norm
+```
+
+`<<"file" name` includes a file, and everything it includes, under a
+namespace: its functions, types, globals and constants are reachable only as
+`name.thing`. Inside the file nothing changes. Use it for your own modules,
+and whenever a library's names collide with yours. A plain `<<"file"` shares
+one flat namespace, which is how the standard library is normally used.
+
+---
+
+## 10. Standard library
 
 The library is written in VIBE. `<<"std.vibe"` pulls in the core and the
 system layer; `<<"math.vibe"` is separate because floating point maths is
@@ -366,6 +529,8 @@ read from it. Everything else below is ordinary VIBE.
 | `beq` | `(a *u8, b *u8, n s64) b` | compare bytes |
 | `seq` | `(a %Str, b %Str) b` | compare strings |
 | `abs` `min` `max` | `(s64 ...) s64` | integer helpers |
+| `lock` `unlock` | `(l *s64) v` | spin lock; the s64 starts at 0 |
+| `print` `println` `printi` `printiln` `eprint` `exit` `copy` `fill` `cstrlen` | | long names for `ps`, `ps`+`nl`, `pn`, `pnl`, `pe`, `ex`, `cp`, `set`, `ln` |
 
 ### System (`sys.vibe`, included by `std.vibe`)
 
@@ -387,6 +552,33 @@ read from it. Everything else below is ordinary VIBE.
 | `srv` | `(port s64) s64` | bind and listen on a TCP port |
 | `acc` | `(fd s64) s64` | accept a connection |
 
+### Heap and containers (`heap.vibe`, include it yourself)
+
+| Name | Signature | Purpose |
+|---|---|---|
+| `new` | `(n s64) *u8` | allocate; thread-safe |
+| `del` | `(p *u8) v` | free; `del(0)` is a no-op |
+| `renew` | `(p *u8, n s64) *u8` | resize, keeping contents |
+| `%Buf` `bnew` `bpc` `bpb` `bps` `bpn` `bstr` `bfree` | | growable byte buffer / string builder |
+| `%Vec` `vnew` `vpush` `vpop` `vfree` | | growable array of `s64` (`w.p[i]` to index) |
+| `%Map` `mnew` `mset` `mget` `mhas` `mdel` `mfree` | | hash map from `%Str` to `s64` |
+
+For containers of other types, write them generically (section 8); `new`,
+`renew` and `del` are the allocator to build on.
+
+### Threads (`thread.vibe`, include it yourself)
+
+| Name | Signature | Purpose |
+|---|---|---|
+| `spawn` | `(f @(s64) v, arg s64) *%Thread` | run `f(arg)` on a new kernel thread with its own 1 MB stack |
+| `join` | `(t *%Thread) v` | wait for it and release its stack |
+
+Threads share all memory. Protect shared data with `lock`/`unlock`, or with
+`\cas` / `\xadd`. Memory that another thread may change outside a lock must
+be read and written with `\load` / `\store`; an optimiser may cache or reorder
+plain accesses. A program that declares C functions should use the C
+library's threads instead.
+
 ### Maths (`math.vibe`, include it yourself)
 
 | Name | Purpose |
@@ -402,14 +594,30 @@ read from it. Everything else below is ordinary VIBE.
 
 ---
 
-## 9. Using the compiler
+## 11. Using the compiler
 
 ```
 vibec prog.vibe -o prog     compile to a static executable
 vibec prog.vibe --run       compile and run
 vibec prog.vibe --ir        print the mid-level IR
 vibec prog.vibe -O0 ...     no optimisation, no register allocation
+vibec prog.vibe --backend=c build through gcc or clang -O3
+vibec prog.vibe --emit-c    print the generated C
+vibec prog.vibe --check     trap, with file:line, on a bad array index or
+                            a division by zero
+vibec prog.vibe --json      report errors as JSON on stdout
 ```
+
+**Two backends, one language.** The native backend needs nothing but
+Python and is the default: builds are instant and the binaries are tiny.
+`--backend=c` prints the same program as freestanding C and compiles it with
+`-O3`; the result is still a static executable with no libc, and it runs as
+fast as the equivalent C. Set `VIBE_CC` to choose the C compiler and
+`VIBE_CFLAGS` to add flags (for example `-march=native`). Develop with the
+native backend, ship with the C backend.
+
+Errors are reported one per function, all in one run, as
+`file:line:col: message`.
 
 The output is a static ELF64 executable that runs on Linux x86-64 with no
 shared libraries. `-O0` compiles through a separate path where every value
@@ -417,30 +625,37 @@ lives in memory; it exists so any program can be run two ways and compared.
 
 ---
 
-## 10. Grammar
+## 12. Grammar
 
 ```
 unit     := decl*
-decl     := include | fn | struct | sum | global
-include  := '<<' STRING NL
-fn       := ('@' IDENT | '@!') '(' params? ')' type block NL
+decl     := include | fn | extern | struct | sum | global
+include  := '<<' STRING IDENT? NL
+fn       := ('@' IDENT tparams? | '@!') '(' params? ')' type block NL
+extern   := '@<' STRING IDENT '(' (IDENT? type (',' IDENT? type)*)? (',' '...')? ')' type NL
 params   := IDENT type (',' IDENT type)*
-struct   := '%' IDENT '{' (IDENT type ','?)* '}' NL
-sum      := '%|' IDENT '{' ('|' IDENT ('(' type (',' type)* ')')? ','?)* '}' NL
+tparams  := '<' IDENT (',' IDENT)* '>'
+targs    := '<' type (',' type)* '>'
+struct   := '%' IDENT tparams? '{' (IDENT type ','?)* '}' NL
+sum      := '%|' IDENT tparams? '{' ('|' IDENT ('(' type (',' type)* ')')? ','?)* '}' NL
 global   := ('$' | '$~' | '$$') IDENT type ('=' expr)? NL
 
+name     := IDENT ('.' IDENT)?                    -- ns.name
 type     := 's8'|'s16'|'s32'|'s64'|'u8'|'u16'|'u32'|'u64'
-          | 'f32'|'f64'|'b'|'v'
-          | '*' type | '[' INT ']' type | '%' IDENT
+          | 'f32'|'f64'|'b'|'v' | IDENT           -- IDENT: a type parameter
+          | '*' type | '[' (INT|IDENT) ']' type | '%' name targs?
           | '@' '(' (type (',' type)*)? ')' type
 
 block    := '{' NL stmt* '}'
 stmt     := ('$'|'$~') IDENT (type)? ('=' expr)? NL
-          | expr '=' expr NL
+          | expr ('=' | '+=' | '-=' | '*=' | '/=' | '%=' | '&=' | '|='
+                  | '^=' | '<<=' | '>>=') expr NL
           | '^' expr? NL
-          | '?' expr block (':' (block | stmt))? NL
+          | '?' expr block (NL* ':' (block | stmt))? NL
           | '*' expr block NL
+          | '*' IDENT (INT|IDENT) unary block NL  -- counted loop
           | '*<' NL | '*>' NL
+          | '~' stmt                              -- defer
           | '??' expr '{' NL arm* '}' NL
           | '\\\\' '[' INT (',' INT)* ']' NL
           | expr NL
@@ -448,20 +663,25 @@ arm      := '|' (IDENT ('(' IDENT (',' IDENT)* ')')? | '_') block
 
 expr     := unary (binop unary)*        -- one distinct operator per level
 unary    := ('-'|'!'|'~') unary | '&' unary | '#' type | postfix
-postfix  := primary ("'" | '.' IDENT | '[' expr ']' | '(' args? ')')*
+postfix  := primary ("'" | '.' IDENT | '[' expr ']' | targs? '(' args? ')')*
 primary  := INT | FLOAT | STRING | BYTE | IDENT
           | '(' expr ')'
           | '[' expr (',' expr)* ']'
-          | '\\' INT '(' args? ')'
-          | '%' IDENT '{' (IDENT ':' expr ','?)* '}'
-          | '%' IDENT '|' IDENT ('(' args? ')')?
-          | '@' IDENT
+          | '\\' INT '(' args? ')'                 -- syscall
+          | '\\' IDENT '(' args? ')'               -- intrinsic
+          | '%' name targs? '{' (IDENT ':' expr ','?)* '}'
+          | '%' name targs? '|' IDENT ('(' args? ')')?
+          | '@' name
           | prim_type '(' expr ')' | '*' type '(' expr ')'
 ```
 
+`*<` and `*>` are tokens only at the start of a statement, so `(a*<b)` is a
+multiply and a compare. A statement that begins `*T(` with `T` a type is a
+store through a cast pointer (`*s64(p)' = 5`), not a loop.
+
 ---
 
-## 11. Calling convention and layout
+## 13. Calling convention and layout
 
 * Scalar arguments go in `rdi, rsi, rdx, rcx, r8, r9`; floats in `xmm0`
   upward; the result is in `rax` or `xmm0`.
@@ -472,23 +692,30 @@ primary  := INT | FLOAT | STRING | BYTE | IDENT
 
 ---
 
-## 12. What v0.1 does not have
+## 14. What v0.2 does not have
 
-Stated plainly so nothing is inferred that is not there: no generics, no
-closures (function pointers do not capture), no methods, interfaces or
-overloading, no namespaces, no varargs,
-more than 6 parameters, no threads (concurrency is by `fork`), no
-exceptions, no garbage collector, no
-bounds checking, no aggregate global initialisers, and no automatic
-formatting of floats. `u64`-to-float conversion is exact only below 2^63.
+Stated plainly so nothing is inferred that is not there: no closures
+(function pointers do not capture; pass a context pointer), no methods,
+interfaces or overloading, no exceptions (return a sum type and match on
+it), no garbage collector, no string formatting beyond the `%Buf` appenders,
+and no targets other than x86-64 Linux in the native backend. `u64`-to-float
+conversion is exact only below 2^63. Bounds are checked only under
+`--check`.
 
 Memory safety is the programmer's job, exactly as in C. What the compiler
-does check: every type, every match's exhaustiveness, every mutation against
-an immutable binding, and every ambiguous expression.
+does check: every type, every literal's range, every match's exhaustiveness,
+every mutation against an immutable binding, every path's return, and every
+ambiguous expression.
+
+### Writing VIBE economically
+
+The shortest correct form is the intended one: leave out parentheses a level
+does not need, let bindings infer their type (`$~ i = 0`), count with
+`* i 0 n { }`, update with `+=`, and clean up with `~`.
 
 ---
 
-## 13. A complete program
+## 15. A complete program
 
 ```
 ; count primes below a limit and print the total
@@ -497,24 +724,22 @@ an immutable binding, and every ambiguous expression.
 $$ LIMIT s64 = 1000000
 
 @ count (n s64) s64 {
-  $ p *u8 = mm((n + 1))
-  ? (p == *u8(0)) {
+  $ p *u8 = mm(n + 1)
+  ? p == *u8(0) {
     ^ -1
   }
-  $~ i s64 = 2
-  $~ c s64 = 0
-  * (i <= n) {
-    ? (p[i] == u8(0)) {
-      c = (c + 1)
-      $~ j s64 = (i * i)
-      * (j <= n) {
+  ~ mu(p, n + 1)
+  $~ c = 0
+  * i 2 (n + 1) {
+    ? p[i] == 0 {
+      c += 1
+      $~ j = i * i
+      * j <= n {
         p[j] = 1
-        j = (j + i)
+        j += i
       }
     }
-    i = (i + 1)
   }
-  mu(p, (n + 1))
   ^ c
 }
 

@@ -423,7 +423,12 @@ class Parser:
             if self.t.kind == "ID" and nx.kind in ("ID", "INT"):
                 # counted loop: * i lo hi { }   (hi is exclusive)
                 name = self.next().val
-                lo = self.parse_postfix()
+                # the start is a bare name or number, never `a(...)`: the
+                # bound may begin with a parenthesis
+                lt = self.next()
+                lo = (A.IntLit(lt.val, line=lt.line, col=lt.col)
+                      if lt.kind == "INT"
+                      else A.Ident(lt.val, line=lt.line, col=lt.col))
                 hi = self.parse_unary()
                 body = self.parse_block()
                 self.end_stmt()
