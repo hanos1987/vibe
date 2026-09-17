@@ -19,7 +19,7 @@ REQUIRED = [
     'data-theme="dark"',
     "</html>",
     'id="install"',
-    "releases/download/v0.1.0",
+    "releases/download/v0.2.0",
     "github.com/hanos1987/vibe",
 ]
 
