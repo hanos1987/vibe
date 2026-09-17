@@ -15,6 +15,7 @@
 
 $$ HCLASSES s64 = 16
 $~ hfree [16]*u8
+$~ hlock s64 = 0
 
 @ new (n s64) *u8 {
   $ need s64 = (n + 16)
@@ -34,15 +35,17 @@ $~ hfree [16]*u8
     qh[0] = -big
     ^ (q + 16)
   }
+  lock(&hlock)
   $~ blk *u8 = hfree[k]
   ? (blk != *u8(0)) {
     $ nx *s64 = *s64((blk + 16))
     hfree[k] = *u8(nx[0])
   } : {
     blk = alloc(sz)
-    ? (blk == *u8(0)) {
-      ^ blk
-    }
+  }
+  unlock(&hlock)
+  ? (blk == *u8(0)) {
+    ^ blk
   }
   $ h *s64 = *s64(blk)
   h[0] = k
@@ -61,8 +64,10 @@ $~ hfree [16]*u8
     ^
   }
   $ nx *s64 = *s64(p)
+  lock(&hlock)
   nx[0] = s64(hfree[k])
   hfree[k] = blk
+  unlock(&hlock)
 }
 
 ; usable bytes in a block returned by new

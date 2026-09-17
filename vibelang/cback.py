@@ -40,6 +40,17 @@ int memcmp(const void *x, const void *y, unsigned long n) {
   const u8 *a = x, *b = y;
   for (; n--; a++, b++) if (*a != *b) return *a - *b;
   return 0; }
+static __attribute__((noinline)) s64 vibe_clone(s64 fn, s64 arg, s64 top, s64 tid) {
+  s64 *sp = (s64*)top; sp[-2] = fn; sp[-1] = arg;
+  register s64 rax __asm__("rax") = 56;
+  register s64 rdi __asm__("rdi") = 0x350F00; register s64 rsi __asm__("rsi") = (s64)(sp - 2);
+  register s64 rdx __asm__("rdx") = tid; register s64 r10 __asm__("r10") = tid;
+  register s64 r8 __asm__("r8") = 0;
+  s64 ret;
+  __asm__ volatile("syscall\n\ttest %%rax, %%rax\n\tjnz 1f\n\tpop %%rax\n\tpop %%rdi\n"
+      "\tcall *%%rax\n\txor %%edi, %%edi\n\tmov $60, %%eax\n\tsyscall\n1:" : "=a"(ret)
+      : "a"(rax), "r"(rdi), "r"(rsi), "r"(rdx), "r"(r10), "r"(r8) : "rcx", "r11", "memory");
+  return ret; }
 static inline s64 vibe_bits(double d) { s64 r; __builtin_memcpy(&r, &d, 8); return r; }
 static inline double vibe_fbits(s64 x) { double d; __builtin_memcpy(&d, &x, 8); return d; }
 static inline __attribute__((always_inline))
@@ -297,6 +308,7 @@ class CGen:
                 "pause": lambda: "__builtin_ia32_pause()",
                 "cas": lambda: "__sync_bool_compare_and_swap((s64*)%s, %s, %s)"
                                % tuple(x),
+                "clone": lambda: "vibe_clone(%s, %s, %s, %s)" % tuple(x),
                 "xadd": lambda: "__sync_fetch_and_add((s64*)%s, %s)" % tuple(x),
             }[i.b]()
             o.append("  %s%s;" % ("" if i.a is None else "v%d = " % i.a, e))

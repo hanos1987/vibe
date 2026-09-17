@@ -1133,7 +1133,7 @@ class Front:
     # name -> number of arguments
     INTRINSICS = {"sqrt": 1, "bits": 1, "fbits": 1, "popcnt": 1, "clz": 1,
                   "ctz": 1, "bswap": 1, "rdtsc": 0, "cas": 3, "xadd": 2,
-                  "pause": 0}
+                  "pause": 0, "clone": 4}
 
     def lower_intrinsic(self, e, want):
         f = self.f
@@ -1186,6 +1186,21 @@ class Front:
         if name == "pause":
             f.emit("intr", None, name, [])
             return None, VOID
+        if name == "clone":
+            # clone(fn @(s64) v, arg s64, stack_top *u8, tid *s64) s64
+            fv, ft = self.rval(e.args[0], None)
+            if not (ft.kind == "fn" and len(ft.params) == 1
+                    and ft.params[0] == S64 and ft.ret == VOID):
+                self.err(e, "\\clone runs a @(s64) v function, got %s" % ft)
+            av, at = self.rval(e.args[1], S64)
+            sv, st = self.rval(e.args[2], None)
+            tv, tt = self.rval(e.args[3], None)
+            if at != S64 or st.kind != "ptr" or tt.kind != "ptr":
+                self.err(e, "\\clone(fn, arg s64, stack_top *u8, tid *s64)")
+            d = f.vreg()
+            f.emit("intr", d, name, [fv, av, sv, tv])
+            f.calls = True
+            return d, S64
         # cas(p, old, new) b   /   xadd(p, delta) old
         p, pt = self.rval(e.args[0], None)
         if not (pt.kind == "ptr" and word(pt.to)):

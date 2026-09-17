@@ -202,6 +202,8 @@ def allocate(f):
             call_idx.append((i, ALL))
         elif x.op == "syscall":
             call_idx.append((i, set(SYS_ARG_POOL[:len(x.c)])))
+        elif x.op == "intr" and x.b == "clone":
+            call_idx.append((i, {RDI, RSI, R8}))
         elif x.op == "memcpy" and x.c > SMALL_COPY:
             call_idx.append((i, {RDI, RSI}))
         elif x.op == "memzero" and x.b > SMALL_COPY:

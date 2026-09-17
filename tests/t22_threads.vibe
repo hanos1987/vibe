@@ -1,0 +1,40 @@
+; kernel threads, atomics, locks and the thread-safe heap
+; out: 400000
+; out: 400000
+; out: 4000
+<<"thread.vibe"
+<<"heap.vibe"
+
+$~ atomic s64 = 0
+$~ guarded s64 = 0
+$~ glock s64 = 0
+$~ allocs s64 = 0
+
+@ worker (n s64) v {
+  * i 0 n {
+    \xadd(&atomic, 1)
+    lock(&glock)
+    guarded += 1
+    unlock(&glock)
+    ? (i % 100) == 0 {
+      $ p *u8 = new(48)
+      p[0] = 1
+      \xadd(&allocs, s64(p[0]))
+      del(p)
+    }
+  }
+}
+
+@! () s64 {
+  $~ ts [4]*%Thread
+  * k 0 4 {
+    ts[k] = spawn(@worker, 100000)
+  }
+  * k 0 4 {
+    join(ts[k])
+  }
+  pnl(atomic)
+  pnl(guarded)
+  pnl(allocs)
+  ^ 0
+}

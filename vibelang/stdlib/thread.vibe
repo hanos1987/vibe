@@ -1,0 +1,43 @@
+; VIBE threads: real kernel threads sharing the address space.
+; Include it yourself: <<"thread.vibe"
+;
+;   spawn(@worker, arg)   start `@ worker (arg s64) v` on its own 1 MB stack
+;   join(t)               wait for it to finish and release its stack
+;
+; Share data through pointers passed in arg (s64(p)). Guard shared state
+; with lock/unlock from std.vibe, or use \cas and \xadd directly. The heap in
+; heap.vibe is thread-safe. Programs that declare C functions (@<) should use
+; the C library's own threads instead, because libc expects its own
+; per-thread setup.
+<<"std.vibe"
+
+$$ TSTACK s64 = 1048576
+
+%Thread { tid s64, stk *u8 }
+
+@ spawn (f @(s64) v, arg s64) *%Thread {
+  $ m *u8 = mm(TSTACK)
+  ? m == *u8(0) {
+    ^ *%Thread(0)
+  }
+  ; the handle lives at the base of the stack mapping, far below the top
+  $ t *%Thread = *%Thread(m)
+  t.stk = m
+  t.tid = 1
+  $ r s64 = \clone(f, arg, m + TSTACK, &t.tid)
+  ? r < 0 {
+    mu(m, TSTACK)
+    ^ *%Thread(0)
+  }
+  ^ t
+}
+
+; the kernel zeroes tid and wakes this futex when the thread exits
+@ join (t *%Thread) v {
+  $~ cur s64 = t.tid
+  * cur != 0 {
+    \202(&t.tid, 0, cur, 0)
+    cur = t.tid
+  }
+  mu(t.stk, TSTACK)
+}

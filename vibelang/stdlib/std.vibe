@@ -186,3 +186,16 @@
   }
   ^ b
 }
+
+; ---- spin lock ---------------------------------------------------------------
+; A lock is an s64 that starts at 0. Short critical sections only.
+
+@ lock (l *s64) v {
+  * !\cas(l, 0, 1) {
+    \pause()
+  }
+}
+
+@ unlock (l *s64) v {
+  l' = 0
+}

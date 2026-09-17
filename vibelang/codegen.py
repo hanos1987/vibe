@@ -22,6 +22,10 @@ SYS_ARG_REGS = [RDI, RSI, RDX, R10, R8, R9]
 XT0, XT1, XT2 = 0, 1, 2          # xmm scratch
 
 
+# VM FS FILES SIGHAND THREAD SYSVSEM PARENT_SETTID CHILD_CLEARTID
+CLONE_FLAGS = 0x350F00
+
+
 def is_pow2(k):
     return k > 0 and (k & (k - 1)) == 0
 
@@ -865,6 +869,38 @@ class CodeGen:
             a.lock_cmpxchg(Mem(R10, 0), R11)
             a.setcc("e", RAX)
             a.movzx(RAX, RAX, 1)
+            self.done(d, RAX)
+        elif name == "clone":
+            # every operand is consumed into r10/r11 or the new stack before
+            # an argument register is written
+            top = self.rd(args[2], R10)
+            if top != R10:
+                a.mov_rr(R10, top)
+            r = self.rd(args[0], R11)
+            a.mov_mr(Mem(R10, -16), r)
+            r = self.rd(args[1], R11)
+            a.mov_mr(Mem(R10, -8), r)
+            r = self.rd(args[3], R11)
+            if r != R11:
+                a.mov_rr(R11, r)
+            a.lea(RSI, Mem(R10, -16))
+            a.mov_rr(RDX, R11)
+            a.mov_rr(R10, R11)
+            a.mov_ri(RDI, CLONE_FLAGS)
+            a.mov_ri(R8, 0)
+            a.mov_ri(RAX, 56)
+            a.syscall()
+            parent = ".clone%d" % len(a.buf)
+            a.test_rr(RAX, RAX)
+            a.jcc("ne", parent)
+            # the new thread: its stack holds the function and its argument
+            a.pop(RAX)
+            a.pop(RDI)
+            a.call_r(RAX)
+            a.mov_ri(RDI, 0)
+            a.mov_ri(RAX, 60)
+            a.syscall()
+            a.label(parent)
             self.done(d, RAX)
         elif name == "xadd":
             p = self.rd(args[0], R10)
