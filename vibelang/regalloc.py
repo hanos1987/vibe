@@ -161,8 +161,10 @@ def intervals(f, blocks):
             if i > end[v]:
                 end[v] = i
 
+    # parameters are live from before the first instruction, so that a call
+    # at index 0 still counts as crossed by them
     for (_, _, pv) in f.params:
-        touch(pv, 0)
+        touch(pv, -1)
     for i, x in enumerate(ins):
         for u in uses_of(x):
             touch(u, i)

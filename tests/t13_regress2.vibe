@@ -1,0 +1,20 @@
+; a parameter must survive a call that is the function's first instruction
+; out: 42
+; out: 12
+<<"std.vibe"
+
+@ noop (a s64, b s64) v {
+  ^
+}
+
+@ keep (a s64, b s64, c s64) s64 {
+  noop(a, c)
+  ^ b
+}
+
+@! () s64 {
+  pnl(keep(1, 42, 3))
+  $ p *u8 = "0123456789ab".p
+  pnl(ln((p + 0)))
+  ^ 0
+}

@@ -1,0 +1,74 @@
+; heap.vibe: allocator reuse, buffer, vector, map
+; out: reuse ok
+; out: 7
+; out: 199
+; out: n=-12345!
+; out: 998001
+; out: 998001
+; out: 999
+; out: 199
+; out: 777
+; out: -1
+; out: 597
+<<"heap.vibe"
+
+@! () s64 {
+  $ a *u8 = new(100)
+  del(a)
+  $ a2 *u8 = new(90)
+  ? (a == a2) {
+    ps("reuse ok\n")
+  }
+  $ big *u8 = new(3000000)
+  big[2999999] = 7
+  pnl(s64(big[2999999]))
+  del(big)
+
+  $~ bf %Buf = bnew()
+  bps(&bf, "n=")
+  bpn(&bf, -12345)
+  bpc(&bf, `!)
+  $~ i s64 = 0
+  * (i < 100) {
+    bpn(&bf, i)
+    i = (i + 1)
+  }
+  $ s %Str = bstr(&bf)
+  pnl(s.n)
+  wr(1, s.p, 9)
+  nl()
+
+  $~ w %Vec = vnew()
+  i = 0
+  * (i < 1000) {
+    vpush(&w, (i * i))
+    i = (i + 1)
+  }
+  pnl(w.p[999])
+  pnl(vpop(&w))
+  pnl(w.n)
+
+  $~ m %Map = mnew()
+  $~ names [200]%Buf
+  i = 0
+  * (i < 200) {
+    names[i] = bnew()
+    bps(&names[i], "key")
+    bpn(&names[i], i)
+    mset(&m, bstr(&names[i]), (i * 3))
+    i = (i + 1)
+  }
+  mset(&m, "key7", 777)
+  mdel(&m, "key8")
+  pnl(m.n)
+  pnl(mget(&m, "key7", -1))
+  pnl(mget(&m, "key8", -1))
+  pnl(mget(&m, "key199", -1))
+  ? mhas(&m, "nope") {
+    ps("bad\n")
+  }
+  mfree(&m)
+  vfree(&w)
+  bfree(&bf)
+  ^ 0
+}

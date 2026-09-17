@@ -1,0 +1,320 @@
+; VIBE heap library: a real allocator with free, and the three containers
+; most programs want. Include it yourself: <<"heap.vibe"
+;
+;   new del renew            size-class allocator over the arena / mmap
+;   %Buf  b*                 growable byte buffer and string builder
+;   %Vec  v*                 growable array of s64 (store pointers via s64(p))
+;   %Map  m*                 hash map from %Str to s64
+<<"std.vibe"
+
+; ---- allocator --------------------------------------------------------------
+;
+; Every block carries a 16-byte header holding its size class. Freed blocks
+; go on a per-class list and are reused first. Requests of 1 MB and over get
+; their own mapping, returned to the kernel by del.
+
+$$ HCLASSES s64 = 16
+$~ hfree [16]*u8
+
+@ new (n s64) *u8 {
+  $ need s64 = (n + 16)
+  $~ k s64 = 0
+  $~ sz s64 = 32
+  * (sz < need) {
+    sz = (sz << 1)
+    k = (k + 1)
+  }
+  ? (k >= HCLASSES) {
+    $ big s64 = ((need + 4095) & -4096)
+    $ q *u8 = mm(big)
+    ? (q == *u8(0)) {
+      ^ q
+    }
+    $ qh *s64 = *s64(q)
+    qh[0] = -big
+    ^ (q + 16)
+  }
+  $~ blk *u8 = hfree[k]
+  ? (blk != *u8(0)) {
+    $ nx *s64 = *s64((blk + 16))
+    hfree[k] = *u8(nx[0])
+  } : {
+    blk = alloc(sz)
+    ? (blk == *u8(0)) {
+      ^ blk
+    }
+  }
+  $ h *s64 = *s64(blk)
+  h[0] = k
+  ^ (blk + 16)
+}
+
+@ del (p *u8) v {
+  ? (p == *u8(0)) {
+    ^
+  }
+  $ blk *u8 = (p - 16)
+  $ h *s64 = *s64(blk)
+  $ k s64 = h[0]
+  ? (k < 0) {
+    mu(blk, -k)
+    ^
+  }
+  $ nx *s64 = *s64(p)
+  nx[0] = s64(hfree[k])
+  hfree[k] = blk
+}
+
+; usable bytes in a block returned by new
+@ cap_of (p *u8) s64 {
+  $ h *s64 = *s64((p - 16))
+  $ k s64 = h[0]
+  ? (k < 0) {
+    ^ (-k - 16)
+  }
+  ^ ((32 << k) - 16)
+}
+
+; resize, keeping the contents; renew(0, n) is new(n)
+@ renew (p *u8, n s64) *u8 {
+  ? (p == *u8(0)) {
+    ^ new(n)
+  }
+  $ have s64 = cap_of(p)
+  ? (have >= n) {
+    ^ p
+  }
+  $ q *u8 = new(n)
+  ? (q == *u8(0)) {
+    ^ q
+  }
+  cp(q, p, have)
+  del(p)
+  ^ q
+}
+
+; ---- byte buffer / string builder ------------------------------------------
+
+%Buf { p *u8, n s64, cap s64 }
+
+@ bnew () %Buf {
+  ^ %Buf{ p: *u8(0), n: 0, cap: 0 }
+}
+
+@ bfree (b *%Buf) v {
+  del(b.p)
+  b.p = *u8(0)
+  b.n = 0
+  b.cap = 0
+}
+
+@ bneed (b *%Buf, extra s64) v {
+  $ want s64 = ((b.n + extra) + 1)
+  ? (want <= b.cap) {
+    ^
+  }
+  $~ c s64 = (b.cap * 2)
+  ? (c < want) {
+    c = want
+  }
+  ? (c < 64) {
+    c = 64
+  }
+  b.p = renew(b.p, c)
+  b.cap = c
+}
+
+@ bpc (b *%Buf, c u8) v {
+  bneed(b, 1)
+  b.p[b.n] = c
+  b.n = (b.n + 1)
+}
+
+@ bpb (b *%Buf, p *u8, n s64) v {
+  bneed(b, n)
+  cp((b.p + b.n), p, n)
+  b.n = (b.n + n)
+}
+
+@ bps (b *%Buf, s %Str) v {
+  bpb(b, s.p, s.n)
+}
+
+@ bpn (b *%Buf, x s64) v {
+  $~ t [24]u8
+  $~ i s64 = 24
+  $~ neg b = (x < 0)
+  $~ u u64 = u64(x)
+  ? neg {
+    u = (u64(0) - u)
+  }
+  ? (u == u64(0)) {
+    i = (i - 1)
+    t[i] = `0
+  }
+  * (u > u64(0)) {
+    i = (i - 1)
+    t[i] = (u8((u % u64(10))) + `0)
+    u = (u / u64(10))
+  }
+  ? neg {
+    i = (i - 1)
+    t[i] = `-
+  }
+  bpb(b, &t[i], (24 - i))
+}
+
+; the contents as a NUL-terminated %Str; valid until the next append
+@ bstr (b *%Buf) %Str {
+  bneed(b, 0)
+  b.p[b.n] = 0
+  ^ %Str{ p: b.p, n: b.n }
+}
+
+; ---- vector of s64 -----------------------------------------------------------
+
+%Vec { p *s64, n s64, cap s64 }
+
+@ vnew () %Vec {
+  ^ %Vec{ p: *s64(0), n: 0, cap: 0 }
+}
+
+@ vfree (w *%Vec) v {
+  del(*u8(w.p))
+  w.p = *s64(0)
+  w.n = 0
+  w.cap = 0
+}
+
+@ vpush (w *%Vec, x s64) v {
+  ? (w.n == w.cap) {
+    $~ c s64 = (w.cap * 2)
+    ? (c < 8) {
+      c = 8
+    }
+    w.p = *s64(renew(*u8(w.p), (c * 8)))
+    w.cap = c
+  }
+  w.p[w.n] = x
+  w.n = (w.n + 1)
+}
+
+@ vpop (w *%Vec) s64 {
+  w.n = (w.n - 1)
+  ^ w.p[w.n]
+}
+
+; ---- hash map: %Str -> s64 ---------------------------------------------------
+;
+; Open addressing, FNV-1a, grows at 70% load. Keys are not copied: the bytes
+; a key points at must outlive its entry.
+
+%Map { keys *%Str, vals *s64, st *u8, cap s64, n s64, used s64 }
+
+@ mnew () %Map {
+  ^ %Map{ keys: *%Str(0), vals: *s64(0), st: *u8(0), cap: 0, n: 0, used: 0 }
+}
+
+@ mfree (m *%Map) v {
+  del(*u8(m.keys))
+  del(*u8(m.vals))
+  del(m.st)
+  m.cap = 0
+  m.n = 0
+  m.used = 0
+}
+
+@ mhash (s %Str) u64 {
+  $~ h u64 = 14695981039346656037
+  $~ i s64 = 0
+  * (i < s.n) {
+    h = ((h ^ u64(s.p[i])) * 1099511628211)
+    i = (i + 1)
+  }
+  ^ h
+}
+
+; slot holding k, or -1
+@ mfind (m *%Map, k %Str) s64 {
+  ? (m.cap == 0) {
+    ^ -1
+  }
+  $ mask s64 = (m.cap - 1)
+  $~ i s64 = (s64((mhash(k) >> 1)) & mask)
+  * (m.st[i] != u8(0)) {
+    ? ((m.st[i] == u8(1)) && seq(m.keys[i], k)) {
+      ^ i
+    }
+    i = ((i + 1) & mask)
+  }
+  ^ -1
+}
+
+@ mgrow (m *%Map) v {
+  $ old %Map = m'
+  $~ c s64 = (old.cap * 2)
+  ? (c < 16) {
+    c = 16
+  }
+  m.keys = *%Str(new((c * #%Str)))
+  m.vals = *s64(new((c * 8)))
+  m.st = new(c)
+  set(m.st, 0, c)
+  m.cap = c
+  m.n = 0
+  m.used = 0
+  $~ i s64 = 0
+  * (i < old.cap) {
+    ? (old.st[i] == u8(1)) {
+      mset(m, old.keys[i], old.vals[i])
+    }
+    i = (i + 1)
+  }
+  del(*u8(old.keys))
+  del(*u8(old.vals))
+  del(old.st)
+}
+
+@ mset (m *%Map, k %Str, x s64) v {
+  $ at s64 = mfind(m, k)
+  ? (at >= 0) {
+    m.vals[at] = x
+    ^
+  }
+  ? (((m.used + 1) * 10) > (m.cap * 7)) {
+    mgrow(m)
+  }
+  $ mask s64 = (m.cap - 1)
+  $~ i s64 = (s64((mhash(k) >> 1)) & mask)
+  * (m.st[i] == u8(1)) {
+    i = ((i + 1) & mask)
+  }
+  ? (m.st[i] == u8(0)) {
+    m.used = (m.used + 1)
+  }
+  m.st[i] = 1
+  m.keys[i] = k
+  m.vals[i] = x
+  m.n = (m.n + 1)
+}
+
+@ mhas (m *%Map, k %Str) b {
+  ^ (mfind(m, k) >= 0)
+}
+
+; value for k, or dflt when absent
+@ mget (m *%Map, k %Str, dflt s64) s64 {
+  $ at s64 = mfind(m, k)
+  ? (at < 0) {
+    ^ dflt
+  }
+  ^ m.vals[at]
+}
+
+@ mdel (m *%Map, k %Str) v {
+  $ at s64 = mfind(m, k)
+  ? (at >= 0) {
+    m.st[at] = 2
+    m.n = (m.n - 1)
+  }
+}

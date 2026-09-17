@@ -1034,7 +1034,9 @@ class Front:
             return d, BOOL
 
         a, at = self.rval(e.a, want if op not in CMP else None)
-        b, bt = self.rval(e.b, at)
+        # a literal offset on a pointer is a count, not another pointer
+        b, bt = self.rval(e.b, S64 if (at.kind == "ptr" and op not in CMP)
+                          else at)
 
         if op in CMP:
             if at.kind == "float" or bt.kind == "float":
