@@ -76,7 +76,7 @@ __asm__(".globl _start\n_start:\n"
 CFLAGS = ["-O3", "-static", "-nostdlib", "-ffreestanding",
           "-fno-stack-protector", "-fno-strict-aliasing", "-fwrapv",
           "-fno-tree-loop-distribute-patterns", "-fno-pie", "-no-pie",
-          "-fno-asynchronous-unwind-tables", "-w", "-s",
+          "-fno-asynchronous-unwind-tables", "-w",
           "-Wl,--build-id=none"]
 
 
@@ -309,9 +309,19 @@ class CGen:
                 "cas": lambda: "__sync_bool_compare_and_swap((s64*)%s, %s, %s)"
                                % tuple(x),
                 "clone": lambda: "vibe_clone(%s, %s, %s, %s)" % tuple(x),
+                "load": lambda: "*(volatile s64*)%s" % x[0],
+                "store": lambda: "*(volatile s64*)%s = %s" % tuple(x),
                 "xadd": lambda: "__sync_fetch_and_add((s64*)%s, %s)" % tuple(x),
             }[i.b]()
+            # a data race is undefined in C, so the optimiser would happily
+            # move ordinary loads and stores across a lock. An empty asm
+            # block that "clobbers memory" pins them on their side of it.
+            fence = i.b in ("cas", "xadd", "load", "store")
+            if fence:
+                o.append("  __asm__ volatile(\"\" : : : \"memory\");")
             o.append("  %s%s;" % ("" if i.a is None else "v%d = " % i.a, e))
+            if fence:
+                o.append("  __asm__ volatile(\"\" : : : \"memory\");")
         elif op == "rawbytes":
             o.append("  __asm__ volatile(\".byte %s\");"
                      % ",".join(str(b) for b in i.a))

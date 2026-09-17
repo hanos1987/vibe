@@ -902,6 +902,14 @@ class CodeGen:
             a.syscall()
             a.label(parent)
             self.done(d, RAX)
+        elif name == "load":
+            p = self.rd(args[0], R10)
+            a.mov_rm(RAX, Mem(p, 0))
+            self.done(d, RAX)
+        elif name == "store":
+            p = self.rd(args[0], R10)
+            v = self.rd(args[1], RAX)
+            a.mov_mr(Mem(p, 0), v)
         elif name == "xadd":
             p = self.rd(args[0], R10)
             if p != R10:

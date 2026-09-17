@@ -5,7 +5,9 @@
 ;   join(t)               wait for it to finish and release its stack
 ;
 ; Share data through pointers passed in arg (s64(p)). Guard shared state
-; with lock/unlock from std.vibe, or use \cas and \xadd directly. The heap in
+; with lock/unlock from std.vibe, or use \cas and \xadd directly. Memory that
+; another thread may change outside a lock must be read and written with
+; \load and \store: an optimiser is free to cache or reorder plain accesses. The heap in
 ; heap.vibe is thread-safe. Programs that declare C functions (@<) should use
 ; the C library's own threads instead, because libc expects its own
 ; per-thread setup.
@@ -34,10 +36,10 @@ $$ TSTACK s64 = 1048576
 
 ; the kernel zeroes tid and wakes this futex when the thread exits
 @ join (t *%Thread) v {
-  $~ cur s64 = t.tid
+  $~ cur s64 = \load(&t.tid)
   * cur != 0 {
     \202(&t.tid, 0, cur, 0)
-    cur = t.tid
+    cur = \load(&t.tid)
   }
   mu(t.stk, TSTACK)
 }

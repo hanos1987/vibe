@@ -197,5 +197,5 @@
 }
 
 @ unlock (l *s64) v {
-  l' = 0
+  \store(l, 0)
 }

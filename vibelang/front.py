@@ -1133,7 +1133,7 @@ class Front:
     # name -> number of arguments
     INTRINSICS = {"sqrt": 1, "bits": 1, "fbits": 1, "popcnt": 1, "clz": 1,
                   "ctz": 1, "bswap": 1, "rdtsc": 0, "cas": 3, "xadd": 2,
-                  "pause": 0, "clone": 4}
+                  "pause": 0, "clone": 4, "load": 1, "store": 2}
 
     def lower_intrinsic(self, e, want):
         f = self.f
@@ -1201,7 +1201,7 @@ class Front:
             f.emit("intr", d, name, [fv, av, sv, tv])
             f.calls = True
             return d, S64
-        # cas(p, old, new) b   /   xadd(p, delta) old
+        # cas(p, old, new) b  /  xadd(p, delta) old  /  load(p)  /  store(p, x)
         p, pt = self.rval(e.args[0], None)
         if not (pt.kind == "ptr" and word(pt.to)):
             self.err(e, "\\%s needs a pointer to a 64-bit integer or "
@@ -1212,6 +1212,9 @@ class Front:
             if t != pt.to:
                 self.err(e, "\\%s: expected %s, got %s" % (name, pt.to, t))
             vals.append(v)
+        if name == "store":
+            f.emit("intr", None, name, [p] + vals)
+            return None, VOID
         d = f.vreg()
         f.emit("intr", d, name, [p] + vals)
         return d, (BOOL if name == "cas" else pt.to)
