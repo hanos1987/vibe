@@ -1,0 +1,42 @@
+; optimiser regressions: reassigned parameter, `*>` inside a loop, narrow
+; negative literal
+; out: 10
+; out: 21
+; out: 1
+; out: -2
+<<"std.vibe"
+
+@ count (n s64) s64 {
+  $~ c s64 = 0
+  * (n > 0) {
+    c = (c + 1)
+    n = (n - 1)
+  }
+  ^ c
+}
+
+@ skip () s64 {
+  $~ i s64 = 0
+  $~ t s64 = 0
+  * (i < 7) {
+    i = (i + 1)
+    ? (i == 4) {
+      *>
+    }
+    $ add s64 = i
+    t = (t + add)
+  }
+  ^ (t - 3)
+}
+
+@! () s64 {
+  $ f @(s64) s64 = @count
+  pnl(f(10))
+  pnl(skip())
+  $ x s32 = -5
+  ? (x < 0) {
+    pnl(1)
+  }
+  pnl(s64((x / 2)))
+  ^ 0
+}

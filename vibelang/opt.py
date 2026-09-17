@@ -135,6 +135,9 @@ def replace_uses(ins, mapping):
 
 def def_counts(f):
     cnt = {}
+    # a parameter is defined once on entry, before any instruction
+    for (_n, _t, pv) in f.params:
+        cnt[pv] = 1
     for ins in f.ins:
         for d in defs_of(ins):
             cnt[d] = cnt.get(d, 0) + 1
@@ -204,7 +207,11 @@ def fold_unary(f):
         ty = ins.d
         r &= (1 << 64) - 1
         if ty is not None and getattr(ty, "size", 8) < 8:
-            r &= (1 << (ty.size * 8)) - 1
+            bits = ty.size * 8
+            r &= (1 << bits) - 1
+            # registers hold narrow signed values sign-extended
+            if getattr(ty, "signed", False) and r >= (1 << (bits - 1)):
+                r -= (1 << bits)
         ins.op = "const"
         ins.b = r
         ins.c = ins.d = ins.e = None
@@ -404,7 +411,12 @@ def find_loops(f):
             j = label_at.get(t)
             if j is not None and j < i:
                 loops.append((j, i))
-    return loops
+    # one loop per header, spanning to its furthest back-edge (`*>` adds
+    # inner back-edges that would otherwise truncate the loop)
+    best = {}
+    for (j, i) in loops:
+        best[j] = max(best.get(j, i), i)
+    return sorted(best.items())
 
 
 def licm(f):
