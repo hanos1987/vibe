@@ -614,6 +614,9 @@ class CodeGen:
         if op == "cvt":
             return self.gen_cvt(ins)
 
+        if op == "intr":
+            return self.gen_intr(ins)
+
         if op == "rawbytes":
             a.raw(ins.a)
             return
@@ -796,6 +799,63 @@ class CodeGen:
             a.alu_ri(o, r, k)
         self.narrow(r, ty)
         self.done(d, r)
+
+    def gen_intr(self, ins):
+        a = self.asm
+        d, name, args = ins.a, ins.b, ins.c
+        if name == "sqrt":
+            x = self.rdf(args[0], XT1)
+            t = self.wregf(d, XT0)
+            a.sqrts(t, x, ins.e)
+            self.donef(d, t)
+        elif name == "bits":
+            x = self.rdf(args[0], XT0)
+            a.movq_rx(RAX, x)
+            self.done(d, RAX)
+        elif name == "fbits":
+            r = self.rd(args[0], RAX)
+            t = self.wregf(d, XT0)
+            a.movq_xr(t, r)
+            self.donef(d, t)
+        elif name in ("popcnt", "clz", "ctz"):
+            r = self.rd(args[0], R10)
+            a.bitcount(name, RAX, r)
+            self.done(d, RAX)
+        elif name == "bswap":
+            r = self.rd(args[0], RAX)
+            a.mov_rr(RAX, r)
+            a.bswap(RAX)
+            self.done(d, RAX)
+        elif name == "rdtsc":
+            a.rdtsc()
+            a.shift_imm("<<", RDX, 32)
+            a.alu_rr("|", RAX, RDX)
+            self.done(d, RAX)
+        elif name == "pause":
+            a.pause()
+        elif name == "cas":
+            p = self.rd(args[0], R10)
+            if p != R10:
+                a.mov_rr(R10, p)
+            n = self.rd(args[2], R11)
+            if n != R11:
+                a.mov_rr(R11, n)
+            o = self.rd(args[1], RAX)
+            a.mov_rr(RAX, o)
+            a.lock_cmpxchg(Mem(R10, 0), R11)
+            a.setcc("e", RAX)
+            a.movzx(RAX, RAX, 1)
+            self.done(d, RAX)
+        elif name == "xadd":
+            p = self.rd(args[0], R10)
+            if p != R10:
+                a.mov_rr(R10, p)
+            v = self.rd(args[1], RAX)
+            a.mov_rr(RAX, v)
+            a.lock_xadd(Mem(R10, 0), RAX)
+            self.done(d, RAX)
+        else:
+            raise Exception("codegen: unknown intrinsic %r" % name)
 
     def gen_cvt(self, ins):
         a = self.asm

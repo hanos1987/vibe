@@ -12,10 +12,7 @@ $ M_E   f64 = 2.718281828459045
 $ M_LN2 f64 = 0.6931471805599453
 
 @ fabs (x f64) f64 {
-  ? (x < 0.0) {
-    ^ -x
-  }
-  ^ x
+  ^ \fbits((\bits(x) & 0x7fffffffffffffff))
 }
 
 @ floor (x f64) f64 {
@@ -58,16 +55,7 @@ $ M_LN2 f64 = 0.6931471805599453
 
 ; Newton's method; converges well inside f64 precision in 40 steps
 @ sqrt (x f64) f64 {
-  ? (x <= 0.0) {
-    ^ 0.0
-  }
-  $~ g f64 = x
-  $~ i s64 = 0
-  * (i < 40) {
-    g = ((g + (x / g)) / 2.0)
-    i = (i + 1)
-  }
-  ^ g
+  ^ \sqrt(x)
 }
 
 ; e^x by range reduction to [-ln2/2, ln2/2] then a Taylor series

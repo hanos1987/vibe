@@ -368,6 +368,27 @@ class Asm:
         else:
             self._sse(None, 0x2E, xmm, rm)
 
+    def bitcount(self, kind, dst, src):
+        """popcnt / lzcnt / tzcnt dst, src (64-bit)"""
+        opc = {"popcnt": 0xB8, "clz": 0xBD, "ctz": 0xBC}[kind]
+        self._op_rm(opc, 1, dst, src, prefix=(0xF3,), esc=True)
+
+    def bswap(self, r):
+        self._rex(1, 0, r)
+        self.b(0x0F, 0xC8 + (r & 7))
+
+    def rdtsc(self):
+        self.b(0x0F, 0x31)
+
+    def pause(self):
+        self.b(0xF3, 0x90)
+
+    def lock_cmpxchg(self, mem, src):
+        self._op_rm(0xB1, 1, src, mem, prefix=(0xF0,), esc=True)
+
+    def lock_xadd(self, mem, src):
+        self._op_rm(0xC1, 1, src, mem, prefix=(0xF0,), esc=True)
+
     def movq_xr(self, xmm, r):
         """movq xmm, r64"""
         self._sse(0x66, 0x6E, xmm, r, w=1)

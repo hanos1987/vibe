@@ -976,6 +976,9 @@ class Front:
             f.emit("leaf", v, e.name)
             return v, sig
 
+        if isinstance(e, A.Intrinsic):
+            return self.lower_intrinsic(e, want)
+
         if isinstance(e, A.Syscall):
             args = []
             if len(e.args) > 6:
@@ -1083,6 +1086,77 @@ class Front:
         raise CheckError("internal: unhandled expression %r" % (e,))
 
     # -- casts ---------------------------------------------------------------
+    # name -> number of arguments
+    INTRINSICS = {"sqrt": 1, "bits": 1, "fbits": 1, "popcnt": 1, "clz": 1,
+                  "ctz": 1, "bswap": 1, "rdtsc": 0, "cas": 3, "xadd": 2,
+                  "pause": 0}
+
+    def lower_intrinsic(self, e, want):
+        f = self.f
+        n = self.INTRINSICS.get(e.name)
+        if n is None:
+            self.err(e, "unknown intrinsic \\%s (have: %s)"
+                     % (e.name, ", ".join(sorted(self.INTRINSICS))))
+        if len(e.args) != n:
+            self.err(e, "\\%s takes %d argument(s)" % (e.name, n))
+        name = e.name
+
+        def word(t):
+            return (t.kind in ("int", "ptr")) and t.size == 8
+
+        if name == "sqrt":
+            v, t = self.rval(e.args[0], want)
+            if t.kind != "float":
+                self.err(e, "\\sqrt needs a float, got %s" % t)
+            d = f.vreg(True)
+            f.emit("intr", d, name, [v], None, t.bits)
+            return d, t
+        if name == "bits":
+            v, t = self.rval(e.args[0], F64)
+            if t != F64:
+                self.err(e, "\\bits needs an f64, got %s" % t)
+            d = f.vreg()
+            f.emit("intr", d, name, [v])
+            return d, U64
+        if name == "fbits":
+            v, t = self.rval(e.args[0], U64)
+            if t != U64:
+                self.err(e, "\\fbits needs a u64, got %s" % t)
+            d = f.vreg(True)
+            f.emit("intr", d, name, [v])
+            return d, F64
+        if name in ("popcnt", "clz", "ctz", "bswap"):
+            v, t = self.rval(e.args[0], want if want is not None
+                             and want.kind == "int" and want.size == 8
+                             else U64)
+            if not (t.kind == "int" and t.size == 8):
+                self.err(e, "\\%s needs a 64-bit integer, got %s"
+                         % (name, t))
+            d = f.vreg()
+            f.emit("intr", d, name, [v])
+            return d, t
+        if name == "rdtsc":
+            d = f.vreg()
+            f.emit("intr", d, name, [])
+            return d, U64
+        if name == "pause":
+            f.emit("intr", None, name, [])
+            return None, VOID
+        # cas(p, old, new) b   /   xadd(p, delta) old
+        p, pt = self.rval(e.args[0], None)
+        if not (pt.kind == "ptr" and word(pt.to)):
+            self.err(e, "\\%s needs a pointer to a 64-bit integer or "
+                        "pointer, got %s" % (name, pt))
+        vals = []
+        for a in e.args[1:]:
+            v, t = self.rval(a, pt.to)
+            if t != pt.to:
+                self.err(e, "\\%s: expected %s, got %s" % (name, pt.to, t))
+            vals.append(v)
+        d = f.vreg()
+        f.emit("intr", d, name, [p] + vals)
+        return d, (BOOL if name == "cas" else pt.to)
+
     def lower_cast(self, e, want):
         f = self.f
         to = self.resolve(e.ty)

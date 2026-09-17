@@ -25,7 +25,7 @@ PRIM_NAMES = {"s8", "s16", "s32", "s64", "u8", "u16", "u32", "u64",
 
 
 def has_call(e):
-    if isinstance(e, (A.Call, A.CallP, A.Syscall)):
+    if isinstance(e, (A.Call, A.CallP, A.Syscall, A.Intrinsic)):
         return True
     for f in getattr(e, "__slots__", ()):
         x = getattr(e, f)
@@ -525,8 +525,14 @@ class Parser:
             return A.ArrLit(items, line=t.line, col=t.col)
         if self.at("\\"):
             self.next()
+            if self.t.kind == "ID":
+                name = self.next().val
+                self.expect("(", "to open the intrinsic argument list")
+                args = self.parse_args()
+                return A.Intrinsic(name, args, line=t.line, col=t.col)
             if self.t.kind != "INT":
-                self.err("syscall needs a numeric selector, e.g. \\1(...)")
+                self.err("\\ takes a syscall number or an intrinsic name, "
+                         "e.g. \\1(...) or \\sqrt(x)")
             num = self.next().val
             self.expect("(", "to open the syscall argument list")
             args = self.parse_args()

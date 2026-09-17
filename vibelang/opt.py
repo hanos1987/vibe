@@ -31,7 +31,7 @@ def defs_of(ins):
         return [ins.a]
     if op in ("loadd", "loadx"):
         return [ins.a]
-    if op in ("call", "syscall", "calli"):
+    if op in ("call", "syscall", "calli", "intr"):
         return [ins.a] if ins.a is not None else []
     if op == "leaf":
         return [ins.a]
@@ -72,7 +72,7 @@ def uses_of(ins):
         return [ins.b] if ins.c is None else [ins.b, ins.c]
     if op == "ret":
         return [ins.a] if ins.a is not None else []
-    if op in ("call", "syscall"):
+    if op in ("call", "syscall", "intr"):
         return list(ins.c)
     if op == "calli":
         return [ins.b] + list(ins.c)
@@ -126,7 +126,7 @@ def replace_uses(ins, mapping):
     elif op == "ret":
         if ins.a is not None:
             ins.a = m(ins.a)
-    elif op in ("call", "syscall"):
+    elif op in ("call", "syscall", "intr"):
         ins.c = [m(x) for x in ins.c]
     elif op == "calli":
         ins.b = m(ins.b)
@@ -519,7 +519,7 @@ _VFIELDS = {
     "fbin": ("a", "c", "d"), "fun": ("a", "c"), "load": ("a", "b"),
     "store": ("a", "b"), "memcpy": ("a", "b"), "memzero": ("a",),
     "br": ("a",), "ret": ("a",), "call": ("a",), "calli": ("a", "b"),
-    "syscall": ("a",), "cvt": ("a", "b"), "label": (), "jmp": (), "trap": (),
+    "syscall": ("a",), "intr": ("a",), "cvt": ("a", "b"), "label": (), "jmp": (), "trap": (),
 }
 INLINE_MAX = 40          # callee size, in IR instructions
 INLINE_GROWTH = 4000     # stop growing a caller past this
@@ -563,7 +563,7 @@ def _splice(caller, call, callee, serial):
             x = getattr(n, fld)
             if x is not None:
                 setattr(n, fld, v(x))
-        if i.op in ("call", "calli", "syscall"):
+        if i.op in ("call", "calli", "syscall", "intr"):
             n.c = [v(x) for x in i.c]
         if i.op == "lea":
             if i.b.idx not in smap:

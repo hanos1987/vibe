@@ -40,6 +40,8 @@ int memcmp(const void *x, const void *y, unsigned long n) {
   const u8 *a = x, *b = y;
   for (; n--; a++, b++) if (*a != *b) return *a - *b;
   return 0; }
+static inline s64 vibe_bits(double d) { s64 r; __builtin_memcpy(&r, &d, 8); return r; }
+static inline double vibe_fbits(s64 x) { double d; __builtin_memcpy(&d, &x, 8); return d; }
 static inline __attribute__((always_inline))
 s64 vibe_sys(s64 n, s64 a, s64 b, s64 c, s64 d, s64 e, s64 f) {
   register s64 rax __asm__("rax") = n;
@@ -241,6 +243,24 @@ class CGen:
             o.append("  v%d = vibe_sys(%d, %s);" % (i.a, i.b, ", ".join(args)))
         elif op == "cvt":
             self.cvt(i)
+        elif op == "intr":
+            x = ["v%d" % v for v in i.c]
+            e = {
+                "sqrt": lambda: ("(double)__builtin_sqrtf((float)%s)" if i.e == 32
+                                 else "__builtin_sqrt(%s)") % x[0],
+                "bits": lambda: "vibe_bits(%s)" % x[0],
+                "fbits": lambda: "vibe_fbits(%s)" % x[0],
+                "popcnt": lambda: "__builtin_popcountll(%s)" % x[0],
+                "clz": lambda: "(%s ? __builtin_clzll(%s) : 64)" % (x[0], x[0]),
+                "ctz": lambda: "(%s ? __builtin_ctzll(%s) : 64)" % (x[0], x[0]),
+                "bswap": lambda: "(s64)__builtin_bswap64((u64)%s)" % x[0],
+                "rdtsc": lambda: "(s64)__builtin_ia32_rdtsc()",
+                "pause": lambda: "__builtin_ia32_pause()",
+                "cas": lambda: "__sync_bool_compare_and_swap((s64*)%s, %s, %s)"
+                               % tuple(x),
+                "xadd": lambda: "__sync_fetch_and_add((s64*)%s, %s)" % tuple(x),
+            }[i.b]()
+            o.append("  %s%s;" % ("" if i.a is None else "v%d = " % i.a, e))
         elif op == "rawbytes":
             o.append("  __asm__ volatile(\".byte %s\");"
                      % ",".join(str(b) for b in i.a))

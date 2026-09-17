@@ -1,0 +1,39 @@
+; compiler intrinsics
+; out: 1.41421356
+; out: 3ff0000000000000
+; out: 2.50
+; out: 3 60 4
+; out: 807060504030201
+; out: 1 0 12
+; out: 5
+; out: 1
+<<"std.vibe"
+
+@! () s64 {
+  pfl(\sqrt(2.0), 8)
+  px(\bits(1.0))
+  nl()
+  pfl(\fbits(\bits(2.5)), 2)
+  $ w u64 = 0xb0
+  pn(s64(\popcnt(w)))
+  pc(` )
+  pn(s64(\clz(u64(15))))
+  pc(` )
+  pnl(s64(\ctz(w)))
+  px(\bswap(u64(0x0102030405060708)))
+  nl()
+  $~ cell s64 = 7
+  pn(s64(\cas(&cell, 7, 9)))
+  pc(` )
+  pn(s64(\cas(&cell, 7, 11)))
+  pc(` )
+  $ old s64 = \xadd(&cell, 3)
+  pnl((old + 3))
+  $ r f32 = \sqrt(f32(25.0))
+  pnl(s64(r))
+  \pause()
+  $ t0 u64 = \rdtsc()
+  $ t1 u64 = \rdtsc()
+  pnl(s64((t1 >= t0)))
+  ^ 0
+}
