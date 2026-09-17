@@ -76,7 +76,7 @@ __asm__(".globl _start\n_start:\n"
 CFLAGS = ["-O3", "-static", "-nostdlib", "-ffreestanding",
           "-fno-stack-protector", "-fno-strict-aliasing", "-fwrapv",
           "-fno-tree-loop-distribute-patterns", "-fno-pie", "-no-pie",
-          "-fno-asynchronous-unwind-tables", "-w",
+          "-fno-asynchronous-unwind-tables", "-w", "-s",
           "-Wl,--build-id=none"]
 
 
