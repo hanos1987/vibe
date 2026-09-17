@@ -247,6 +247,17 @@ class Front:
         # 4. function signatures
         for fname, d in self.decls:
             self.file = fname
+            if isinstance(d, A.ExternDecl):
+                if d.name in self.fns:
+                    self.err(d, "function %r declared twice" % d.name)
+                ps = [self.resolve(t) for t in d.params]
+                rt = self.resolve(d.ret)
+                for t in ps + [rt]:
+                    if t.is_agg:
+                        self.err(d, "an extern function takes and returns "
+                                    "scalars and pointers only, not %s" % t)
+                self.fns[d.name] = FnT(ps, rt)
+                self.prog.externs[d.name] = (d.lib, ps, rt, d.variadic)
             if isinstance(d, A.FnDecl):
                 if d.name in self.fns:
                     self.err(d, "function %r declared twice" % d.name)
@@ -1333,7 +1344,11 @@ class Front:
                     self.err(e, "%r is not callable (it is %s)" % (e.name, ft))
                 return self.lower_indirect(e, fv, ft, e.args)
             self.err(e, "unknown function %r" % e.name)
-        if len(e.args) != len(sig.params):
+        ext = self.prog.externs.get(e.name)
+        extra = []
+        if ext is not None and ext[3] and len(e.args) > len(sig.params):
+            extra = e.args[len(sig.params):]
+        elif len(e.args) != len(sig.params):
             self.err(e, "%s takes %d argument(s), got %d"
                      % (e.name, len(sig.params), len(e.args)))
         f.calls = True
@@ -1360,6 +1375,19 @@ class Front:
             else:
                 argv.append(v)
                 argf.append(pt.kind == "float")
+        for a in extra:
+            # variadic tail: integers and pointers as 64-bit, floats as f64
+            v, vt = self.rval(a, None)
+            if vt.is_agg and vt == self.types.get("Str"):
+                self.err(e, "pass s.p, not a %Str, to a C function")
+            if vt.is_agg:
+                self.err(e, "cannot pass %s to a variadic C function" % vt)
+            if vt == F32:
+                d2 = f.vreg(True)
+                f.emit("cvt", d2, v, F32, F64)
+                v = d2
+            argv.append(v)
+            argf.append(vt.kind == "float")
         if sig.ret == VOID:
             f.emit("call", None, e.name, argv, argf, False)
             return None, VOID

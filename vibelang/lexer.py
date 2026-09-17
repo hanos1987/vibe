@@ -25,7 +25,7 @@ class Tok:
 # Longest-match-first punctuation table. Order matters.
 PUNCT = [
     "$$", "$~", "$",
-    "@!", "@",
+    "@!", "@<", "@",
     "%|", "%",
     "??",
     "<<=", ">>=", "+=", "-=", "*=", "/=", "%=", "&=", "|=", "^=",
@@ -37,7 +37,7 @@ PUNCT = [
     "?", ":", "^", "~", "#", "'",
     "+", "-", "/",
     "(", ")", "{", "}", "[", "]",
-    ",", ".", "=",
+    "...", ",", ".", "=",
 ]
 
 IDENT_START = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_")

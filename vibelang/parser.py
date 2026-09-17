@@ -120,6 +120,8 @@ class Parser:
             p = self.next().val.decode("utf-8")
             self.end_stmt()
             return A.Include(p, line=t.line, col=t.col)
+        if self.at("@<"):
+            return self.parse_extern()
         if self.at("@", "@!"):
             return self.parse_fn()
         if self.at("%|"):
@@ -131,6 +133,32 @@ class Parser:
         self.err("expected a declaration sigil (@ %% $ <<)")
 
     # -- declarations --------------------------------------------------------
+    def parse_extern(self):
+        """@< "lib" name (T, ...) R   -- a C function from a library"""
+        t = self.next()
+        if self.t.kind != "STR":
+            self.err("expected the library name, e.g. @< \"c\" puts (*u8) s32")
+        lib = self.next().val.decode("utf-8")
+        name = self.expect_id("function name")
+        self.expect("(", "to open the parameter list")
+        params = []
+        variadic = False
+        while not self.at(")"):
+            if self.eat("..."):
+                variadic = True
+                break
+            # a parameter name is optional and ignored
+            if self.t.kind == "ID" and self.t.val not in PRIM_NAMES:
+                self.next()
+            params.append(self.parse_type())
+            if not self.eat(","):
+                break
+        self.expect(")", "to close the parameter list")
+        ret = self.parse_type()
+        self.end_stmt()
+        return A.ExternDecl(lib, name, params, ret, variadic,
+                            line=t.line, col=t.col)
+
     def parse_fn(self):
         t = self.next()
         entry = (t.val == "@!")

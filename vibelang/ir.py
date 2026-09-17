@@ -86,6 +86,7 @@ class Program:
         self.globals = {}       # name -> (Type, bytes_or_None, is_bss)
         self.rodata = []        # list of (label, bytes)
         self.entry = None
+        self.externs = {}       # name -> (lib, [param Type], ret Type, variadic)
         self._strn = 0
 
     def add_ro(self, data):

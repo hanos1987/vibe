@@ -101,6 +101,18 @@ def mem(addr, size, signed, isf):
     return "((%s*)(%s))->x" % (t, addr)
 
 
+def ctype(t):
+    if t.kind == "float":
+        return "float" if t.bits == 32 else "double"
+    if t.kind == "int":
+        return "%s%d" % ("s" if t.signed else "u", t.size * 8)
+    if t.kind == "bool":
+        return "u8"
+    if t.kind == "void":
+        return "void"
+    return "void*"
+
+
 def fsig(argf, retf):
     return "%s(*)(%s)" % ("double" if retf else "s64",
                           ", ".join("double" if x else "s64" for x in argf)
@@ -128,7 +140,18 @@ class CGen:
                         ",".join(str(b) for b in blob)))
         for f in self.prog.funcs:
             o.append(self.proto(f) + ";")
-        o.append(ENTRY.replace("SPSYM", "g_" + mangle("$g___sp")))
+        for name, (lib, ps, rt, variadic) in self.prog.externs.items():
+            args = [ctype(t) for t in ps] + (["..."] if variadic else [])
+            o.append("extern %s %s(%s);" % (ctype(rt), name,
+                                            ", ".join(args) or "void"))
+        if self.prog.externs:
+            # hosted: the C runtime owns _start; recover the kernel's stack
+            # block (argc sits just below argv) for argc/arg/env
+            o.append("int main(int argc, char **argv) {\n"
+                     "  *(s64*)g_%s = (s64)((s64*)argv - 1);\n"
+                     "  return (int)vibe_entry();\n}" % mangle("$g___sp"))
+        else:
+            o.append(ENTRY.replace("SPSYM", "g_" + mangle("$g___sp")))
         for f in self.prog.funcs:
             self.func(f)
         return "\n".join(o) + "\n"
@@ -232,6 +255,22 @@ class CGen:
             o.append("  return %s;" % ("0" if i.a is None else "v%d" % i.a))
         elif op in ("call", "calli"):
             args = ", ".join("v%d" % v for v in i.c)
+            ext = self.prog.externs.get(i.b) if op == "call" else None
+            if ext is not None:
+                ps = ext[1]
+                parts = []
+                for k, v in enumerate(i.c):
+                    if k < len(ps):
+                        parts.append("(%s)v%d" % (ctype(ps[k]), v))
+                    else:
+                        parts.append("v%d" % v)
+                call = "%s(%s)" % (i.b, ", ".join(parts))
+                if i.a is None:
+                    o.append("  %s;" % call)
+                else:
+                    o.append("  v%d = (%s)%s;" % (
+                        i.a, "double" if i.e else "s64", call))
+                return
             if op == "call":
                 callee = fn_name(i.b)
             else:
@@ -327,7 +366,16 @@ def compile_program_c(prog, keep=None):
         with open(cpath, "w") as fh:
             fh.write(src)
         extra = os.environ.get("VIBE_CFLAGS", "").split()
-        r = subprocess.run([cc] + CFLAGS + extra + [cpath, "-o", bpath],
+        flags = list(CFLAGS)
+        libs = []
+        if prog.externs:
+            for drop in ("-static", "-nostdlib", "-ffreestanding",
+                         "-fno-pie", "-no-pie"):
+                flags.remove(drop)
+            for (lib, _, _, _) in prog.externs.values():
+                if lib not in ("c", "") and "-l" + lib not in libs:
+                    libs.append("-l" + lib)
+        r = subprocess.run([cc] + flags + extra + [cpath, "-o", bpath] + libs,
                            capture_output=True, text=True)
         if r.returncode != 0:
             raise RuntimeError("C compiler failed:\n" + r.stderr)

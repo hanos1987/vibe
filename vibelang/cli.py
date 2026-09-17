@@ -52,6 +52,7 @@ def main(argv=None):
     mode = "build"
     noopt = False
     backend = "native"
+    explicit_backend = False
     i = 1
     while i < len(argv):
         x = argv[i]
@@ -72,6 +73,7 @@ def main(argv=None):
         elif x == "--run":
             mode = "run"
         elif x == "--backend" or x.startswith("--backend="):
+            explicit_backend = True
             if "=" in x:
                 backend = x.split("=", 1)[1]
             else:
@@ -112,6 +114,13 @@ def main(argv=None):
         from .cback import emit_c
         sys.stdout.write(emit_c(prog))
         return 0
+
+    if prog.externs and backend == "native":
+        if explicit_backend:
+            sys.stderr.write("vibec: this program declares C functions (@<); "
+                             "build it with --backend=c\n")
+            return 1
+        backend = "c"
 
     if backend == "c":
         from .cback import compile_program_c
