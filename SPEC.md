@@ -195,7 +195,7 @@ A binding is visible from its line to the end of the enclosing block. A
 name may not be bound twice in one block.
 
 The counted loop `* i a b { }` binds `i` for the body only. `a` is a bare
-name or number; `b` is a single operand, so parenthesise an
+name or number (a number may be negative: `* z -3 4 { }`); `b` is a single operand, so parenthesise an
 expression: `* i 2 (n + 1) { }`. Both must have the same integer
 type (a literal takes the type of the other), and `i` has that type.
 
@@ -282,6 +282,10 @@ Two exceptions, both safe and unambiguous:
 * Float comparisons follow IEEE 754: every comparison with a NaN is false
   except `!=`. `-x` flips the sign bit, so `-(0.0)` is `-0.0`.
 * `b(x)` is `x != 0`.
+* A float converted to an integer truncates toward zero; a value that does
+  not fit (or a NaN) gives the most negative `s64`.
+* Assigning one aggregate to another reads the whole value before writing
+  any of it, so overlapping source and destination are safe.
 
 ### Postfix and prefix forms
 
@@ -358,7 +362,7 @@ which is all a dispatch table needs. They compare by identity with `==` and
 
 A match **must be exhaustive**. Cover every variant, or end with `|_`, or
 the compiler rejects the program and names the missing variants. Binder
-count must equal the variant's payload count. Binders are immutable and
+count must equal the variant's payload count. Binders are immutable copies,
 scoped to their arm.
 
 ---
@@ -431,7 +435,8 @@ Arguments and results are scalars and pointers. After `...`, integers and
 pointers are passed as 64-bit and floats as `f64`. Pass `s.p`, never a
 `%Str`; string literals are NUL-terminated for exactly this purpose. A
 program that declares C functions is built through the C backend and linked
-against the C runtime automatically.
+against the C runtime automatically. The address of a C function cannot be
+taken (`@strlen`); wrap it in a VIBE function.
 
 ---
 
@@ -471,7 +476,8 @@ time.
 ```
 
 Type arguments are inferred from the non-literal arguments and from the type
-the context expects; if that is not enough, write them: `f<s64>(...)`.
+the context expects; a literal left to decide a parameter makes it `s64` or
+`f64`. If that is not enough, write them: `f<s64>(...)`.
 Inside a generic, `T(x)` is a cast to `T` and `#T` is its size. A generic
 struct or sum literal may omit its arguments where the expected type
 supplies them (`%Vec{ ... }`, `%Opt|None`).

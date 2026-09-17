@@ -121,6 +121,7 @@ python3 tests/run.py              # native, optimised
 python3 tests/run.py -O0          # every value in memory, no allocation
 python3 tests/run.py --backend=c  # through the C compiler
 python3 tests/fuzz.py 0 1000      # random programs, -O against -O0
+python3 tests/fuzz4.py 0 500      # richer programs, all three paths
 ```
 
 All three paths must agree; `-O0` exists as an independent oracle for the

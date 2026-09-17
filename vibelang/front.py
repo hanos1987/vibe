@@ -827,6 +827,15 @@ class Front:
             v, vt = self.rval(s.value, ty)
             self.assignable(s, ty, vt)
             if ty.is_agg:
+                if isinstance(s.value, (A.Deref, A.Index, A.Field)) and \
+                        isinstance(s.target, (A.Deref, A.Index, A.Field)):
+                    # both sides are memory that may overlap: the value is
+                    # read in full before any of it is written
+                    ts = f.slot(ty.size, ty.align, "asgn")
+                    ta = f.vreg()
+                    f.emit("lea", ta, ts)
+                    f.emit("memcpy", ta, v, ty.size)
+                    v = ta
                 f.emit("memcpy", addr, v, ty.size)
             else:
                 f.emit("store", addr, v, ty.size, ty.kind == "float")

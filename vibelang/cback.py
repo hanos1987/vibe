@@ -51,6 +51,8 @@ static __attribute__((noinline)) s64 vibe_clone(s64 fn, s64 arg, s64 top, s64 ti
       "\tcall *%%rax\n\txor %%edi, %%edi\n\tmov $60, %%eax\n\tsyscall\n1:" : "=a"(ret)
       : "a"(rax), "r"(rdi), "r"(rsi), "r"(rdx), "r"(r10), "r"(r8) : "rcx", "r11", "memory");
   return ret; }
+static inline s64 vibe_f2i(double x) {
+  return (x >= -0x1p63 && x < 0x1p63) ? (s64)x : (s64)(1ULL << 63); }
 static inline s64 vibe_bits(double d) { s64 r; __builtin_memcpy(&r, &d, 8); return r; }
 static inline double vibe_fbits(s64 x) { double d; __builtin_memcpy(&d, &x, 8); return d; }
 static inline __attribute__((always_inline))
@@ -350,7 +352,9 @@ class CGen:
         if ft.kind == "float" and tt.kind == "float":
             e = "(double)(float)v%d" % s if tt.bits == 32 else "v%d" % s
         elif ft.kind == "float":
-            e = narrow("(s64)v%d" % s, tt)
+            # out of range (or NaN) gives the most negative s64, which is
+            # what the hardware conversion the native backend uses gives
+            e = narrow("vibe_f2i(v%d)" % s, tt)
         elif tt.kind == "float":
             e = "(double)v%d" % s
             if tt.bits == 32:

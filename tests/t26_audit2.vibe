@@ -1,0 +1,82 @@
+; regressions from the second audit
+; out: 3
+; out: 5 5
+; out: 3.00 3
+; out: 2
+; out: 1
+; out: -2-101
+; out: -9223372036854775808
+; out: 5 2.50
+; out: 12
+<<"std.vibe"
+
+@ two (a b, c b) s64 {
+  ^ s64(a) + s64(c)
+}
+
+@ wrap<T> (x T) T {
+  ^ x
+}
+
+@ many (v s64) s64 {
+  ; enough slots that the C backend's slot names pass s8, s16, ...
+  $~ a0 [2]s64
+  $~ a1 [2]s64
+  $~ a2 [2]s64
+  $~ a3 [2]s64
+  $~ a4 [2]s64
+  $~ a5 [2]s64
+  $~ a6 [2]s64
+  $~ a7 [2]s64
+  $~ a8 [2]s64
+  $~ a9 [2]s64
+  a9[1] = v
+  ^ s64(s8(a9[1])) + a0[0]
+}
+
+@! () s64 {
+  $~ s = 7
+  s %= 4
+  pnl(s)
+  $~ n = 5
+  $~ runs = 0
+  * i 0 n {
+    n -= 1
+    runs += 1
+  }
+  $~ m = 5
+  $ pm *s64 = &m
+  $~ runs2 = 0
+  * i 0 m {
+    m -= 1
+    runs2 += 1
+  }
+  pn(runs)
+  pc(` )
+  pnl(runs2)
+  $~ x f64 = 9.0
+  x += 0.0
+  pf(\sqrt(x), 2)
+  pc(` )
+  pnl(s64(\popcnt(u64(runs + 2))))
+  $~ k = 0
+  * s64(k) < 2 {
+    k += 1
+  }
+  pnl(k)
+  $ a = 1
+  $ bb = 2
+  $ c = 3
+  $ d = 2
+  pnl(two(a < bb, c > (d)) - 1)
+  * z -2 2 {
+    pn(z)
+  }
+  nl()
+  pnl(-9223372036854775807 - 1)
+  pn(wrap(5))
+  pc(` )
+  pfl(wrap(2.5), 2)
+  pnl(many(12))
+  ^ 0
+}
