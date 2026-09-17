@@ -53,6 +53,10 @@ class Front:
         self.f = None            # current ir.Func
         self.scope = None
         self.loops = []
+        self.tbind = {}         # type parameter -> Type, inside a generic
+        self.ttypes = {}        # generic struct / sum templates
+        self.tfns = {}          # generic function templates
+        self.pending = []       # generic function instances to lower
         self.cur_ret = VOID
         self.cur_sret = None
 
@@ -101,6 +105,8 @@ class Front:
     # -- type resolution -----------------------------------------------------
     def resolve(self, t, node=None):
         if isinstance(t, A.TName):
+            if t.name in self.tbind:
+                return self.tbind[t.name]
             if t.name in PRIMS:
                 return PRIMS[t.name]
             if t.name in self.types:
@@ -119,6 +125,11 @@ class Front:
                 self.err(t, "array length must be positive")
             return ArrT(self.resolve(t.elem), n)
         if isinstance(t, A.TNamed):
+            if t.targs:
+                return self.inst_type(t)
+            if t.name in self.ttypes:
+                self.err(t, "%%%s is generic: write %%%s<type>"
+                         % (t.name, t.name))
             if t.name in self.types:
                 return self.types[t.name]
             self.err(t, "unknown type %%%s" % t.name)
@@ -126,6 +137,116 @@ class Front:
             return FnT([self.resolve(p) for p in t.params],
                        self.resolve(t.ret))
         raise CheckError("internal: bad type node %r" % (t,))
+
+    def inst_type(self, t):
+        """The concrete type for %Name<args>, laid out on first use."""
+        tmpl = self.ttypes.get(t.name)
+        if tmpl is None:
+            self.err(t, "%%%s is not a generic type" % t.name)
+        fname, d = tmpl
+        if len(t.targs) != len(d.tparams):
+            self.err(t, "%%%s takes %d type argument(s), got %d"
+                     % (t.name, len(d.tparams), len(t.targs)))
+        args = [self.resolve(a) for a in t.targs]
+        key = "%s<%s>" % (t.name, ",".join(str(a) for a in args))
+        if key in self.types:
+            return self.types[key]
+        ty = StructT(key) if isinstance(d, A.StructDecl) else SumT(key)
+        ty.template = t.name
+        ty.targs = args
+        self.types[key] = ty
+        saved = (self.tbind, self.file)
+        self.tbind = dict(zip(d.tparams, args))
+        self.file = fname
+        if isinstance(d, A.StructDecl):
+            ty.layout([(n, self.resolve(x)) for (n, x) in d.fields])
+        else:
+            ty.layout([(n, [self.resolve(x) for x in ts])
+                       for (n, ts) in d.variants])
+        self.tbind, self.file = saved
+        return ty
+
+    def lit_type(self, e, want, kind):
+        """The type named by a struct or sum literal. A generic name with no
+        arguments takes them from the type the context expects."""
+        if e.targs:
+            ty = self.resolve(A.TNamed(e.tyname, e.targs,
+                                       line=e.line, col=e.col))
+        elif e.tyname in self.ttypes:
+            if want is not None and getattr(want, "template", None) == e.tyname:
+                ty = want
+            else:
+                self.err(e, "%%%s is generic: write %%%s<type>"
+                         % (e.tyname, e.tyname))
+        else:
+            ty = self.types.get(e.tyname)
+        if ty is None or ty.kind != kind:
+            self.err(e, "unknown %s %%%s" % (
+                "struct" if kind == "struct" else "sum type", e.tyname))
+        return ty
+
+    def unify(self, node, tast, ty, tparams, bind):
+        """Match a parameter's type syntax against an argument's type,
+        recording what each type parameter must be."""
+        if isinstance(tast, A.TName) and tast.name in tparams:
+            old = bind.get(tast.name)
+            if old is None:
+                bind[tast.name] = ty
+            elif old != ty:
+                self.err(node, "type parameter %s is both %s and %s"
+                         % (tast.name, old, ty))
+        elif isinstance(tast, A.TPtr):
+            if ty.kind == "ptr":
+                self.unify(node, tast.to, ty.to, tparams, bind)
+            elif ty.kind == "arr":
+                self.unify(node, tast.to, ty.elem, tparams, bind)
+        elif isinstance(tast, A.TArr) and ty.kind == "arr":
+            self.unify(node, tast.elem, ty.elem, tparams, bind)
+        elif isinstance(tast, A.TNamed) and tast.targs \
+                and getattr(ty, "template", None) == tast.name:
+            for a, b in zip(tast.targs, ty.targs):
+                self.unify(node, a, b, tparams, bind)
+        elif isinstance(tast, A.TFn) and ty.kind == "fn":
+            for a, b in zip(tast.params, ty.params):
+                self.unify(node, a, b, tparams, bind)
+            self.unify(node, tast.ret, ty.ret, tparams, bind)
+
+    def generic_call(self, e, want):
+        fname, d = self.tfns[e.name]
+        bind = {}
+        pre = {}
+        if e.targs:
+            if len(e.targs) != len(d.tparams):
+                self.err(e, "%s takes %d type argument(s), got %d"
+                         % (e.name, len(d.tparams), len(e.targs)))
+            bind = dict(zip(d.tparams, [self.resolve(a) for a in e.targs]))
+        else:
+            if len(e.args) != len(d.params):
+                self.err(e, "%s takes %d argument(s), got %d"
+                         % (e.name, len(d.params), len(e.args)))
+            for k, (a, (_, ptast)) in enumerate(zip(e.args, d.params)):
+                if not self.is_lit(a):
+                    pre[k] = self.rval(a, None)
+                    self.unify(e, ptast, pre[k][1], d.tparams, bind)
+            if want is not None:
+                probe = dict(bind)
+                self.unify(e, d.ret, want, d.tparams, probe)
+                for k2, v2 in probe.items():
+                    bind.setdefault(k2, v2)
+            missing = [p for p in d.tparams if p not in bind]
+            if missing:
+                self.err(e, "cannot infer %s for %s; write %s<type>(...)"
+                         % (", ".join(missing), e.name, e.name))
+        key = "%s<%s>" % (e.name, ",".join(str(bind[p]) for p in d.tparams))
+        if key not in self.fns:
+            saved = (self.tbind, self.file)
+            self.tbind, self.file = bind, fname
+            ps = [self.resolve(t) for (_, t) in d.params]
+            rt = self.resolve(d.ret)
+            self.tbind, self.file = saved
+            self.fns[key] = FnT(ps, rt)
+            self.pending.append((fname, d, bind, key))
+        return self.lower_call(e, name=key, pre=pre)
 
     def member_types(self, d):
         """Type syntax nodes this declaration embeds."""
@@ -150,17 +271,31 @@ class Front:
             if isinstance(t.n, str) and t.n not in self.constants:
                 return False
             return self.type_ready(t.elem)
+        if isinstance(t, A.TNamed) and t.targs:
+            if not all(self.type_ready(a) for a in t.targs):
+                return False
+            return self.resolve(t).complete
         if isinstance(t, A.TNamed):
             nt = self.types.get(t.name)
             return nt is not None and nt.complete
         if isinstance(t, A.TName):
-            if t.name in PRIMS:
+            if t.name in PRIMS or t.name in self.tbind:
                 return True
             nt = self.types.get(t.name)
             return nt is not None and nt.complete
         return True
 
     def collect(self):
+        generic = [(fn, d) for (fn, d) in self.decls
+                   if getattr(d, "tparams", None)]
+        self.decls = [(fn, d) for (fn, d) in self.decls
+                      if not getattr(d, "tparams", None)]
+        for fn, d in generic:
+            self.file = fn
+            table = self.tfns if isinstance(d, A.FnDecl) else self.ttypes
+            if d.name in table or d.name in self.types:
+                self.err(d, "%r declared twice" % d.name)
+            table[d.name] = (fn, d)
         # 1. create named type shells
         for fname, d in self.decls:
             self.file = fname
@@ -368,6 +503,13 @@ class Front:
             self.file = fname
             if isinstance(d, A.FnDecl):
                 self.lower_fn(d)
+        # generic functions, one copy per set of type arguments actually used
+        while self.pending:
+            fname, d, bind, key = self.pending.pop(0)
+            self.file = fname
+            self.tbind = bind
+            self.lower_fn(d, key)
+            self.tbind = {}
         return self.prog
 
     def addr_taken(self, body):
@@ -394,10 +536,11 @@ class Front:
         walk(body)
         return out
 
-    def lower_fn(self, d):
-        sig = self.fns[d.name]
+    def lower_fn(self, d, name=None):
+        name = name or d.name
+        sig = self.fns[name]
         sret = sig.ret.is_agg
-        f = ir.Func(d.name, [], sig.ret, sret)
+        f = ir.Func(name, [], sig.ret, sret)
         self.f = f
         self.cur_ret = sig.ret
         self.scope = Scope()
@@ -1004,7 +1147,7 @@ class Front:
             return self.lower_bin(e, want)
 
         if isinstance(e, A.Call):
-            return self.lower_call(e)
+            return self.lower_call(e, want)
 
         if isinstance(e, A.CallP):
             fv, ft = self.rval(e.callee, None)
@@ -1041,9 +1184,7 @@ class Front:
             return d, S64
 
         if isinstance(e, A.StructLit):
-            ty = self.types.get(e.tyname)
-            if ty is None or ty.kind != "struct":
-                self.err(e, "unknown struct %%%s" % e.tyname)
+            ty = self.lit_type(e, want, "struct")
             given = {}
             for (fn, fe) in e.inits:
                 if fn in given:
@@ -1072,9 +1213,7 @@ class Front:
             return base, ty
 
         if isinstance(e, A.SumLit):
-            ty = self.types.get(e.tyname)
-            if ty is None or ty.kind != "sum":
-                self.err(e, "unknown sum type %%%s" % e.tyname)
+            ty = self.lit_type(e, want, "sum")
             idx, v = ty.variant(e.variant)
             if idx is None:
                 self.err(e, "%s has no variant %r" % (ty, e.variant))
@@ -1382,9 +1521,19 @@ class Front:
         return d, at
 
     # -- calls ---------------------------------------------------------------
-    def lower_call(self, e):
+    def lower_call(self, e, want=None, name=None, pre=None):
         f = self.f
-        sig = self.fns.get(e.name)
+        pre = pre or {}
+        if name is None:
+            if e.name in self.tbind and len(e.args) == 1:
+                # T(x) inside a generic function is a cast
+                return self.lower_cast(A.Cast(
+                    A.TName(e.name, line=e.line, col=e.col), e.args[0],
+                    line=e.line, col=e.col), want)
+            if e.name in self.tfns:
+                return self.generic_call(e, want)
+            name = e.name
+        sig = self.fns.get(name)
         if sig is None:
             # a local or global holding a function pointer is callable too
             ent = self.scope.get(e.name)
@@ -1395,7 +1544,7 @@ class Front:
                     self.err(e, "%r is not callable (it is %s)" % (e.name, ft))
                 return self.lower_indirect(e, fv, ft, e.args)
             self.err(e, "unknown function %r" % e.name)
-        ext = self.prog.externs.get(e.name)
+        ext = self.prog.externs.get(name)
         extra = []
         if ext is not None and ext[3] and len(e.args) > len(sig.params):
             extra = e.args[len(sig.params):]
@@ -1412,8 +1561,8 @@ class Front:
             f.emit("lea", rv, retslot)
             argv.append(rv)
             argf.append(False)
-        for a, pt in zip(e.args, sig.params):
-            v, vt = self.rval(a, pt)
+        for k, (a, pt) in enumerate(zip(e.args, sig.params)):
+            v, vt = pre[k] if k in pre else self.rval(a, pt)
             self.assignable(e, pt, vt)
             if pt.is_agg:
                 # pass a private copy by reference
@@ -1440,10 +1589,10 @@ class Front:
             argv.append(v)
             argf.append(vt.kind == "float")
         if sig.ret == VOID:
-            f.emit("call", None, e.name, argv, argf, False)
+            f.emit("call", None, name, argv, argf, False)
             return None, VOID
         d = f.vreg(sig.ret.kind == "float")
-        f.emit("call", d, e.name, argv, argf, sig.ret.kind == "float")
+        f.emit("call", d, name, argv, argf, sig.ret.kind == "float")
         if sig.ret.is_agg:
             return d, sig.ret
         return d, sig.ret

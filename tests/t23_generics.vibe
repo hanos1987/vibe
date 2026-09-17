@@ -1,0 +1,86 @@
+; generics: monomorphised types and functions, with inference
+; out: 3 30
+; out: 2.50
+; out: some 7
+; out: none
+; out: 9 1
+; out: 16 24
+<<"heap.vibe"
+
+%Vec2<T> { p *T, n s64, cap s64 }
+
+%| Opt<T> {
+  |Some(T)
+  |None
+}
+
+%Pair<A, B> { a A, b B }
+
+@ gnew<T> () %Vec2<T> {
+  ^ %Vec2{ p: *T(0), n: 0, cap: 0 }
+}
+
+@ gpush<T> (w *%Vec2<T>, x T) v {
+  ? w.n == w.cap {
+    $~ c = w.cap * 2
+    ? c < 4 {
+      c = 4
+    }
+    w.p = *T(renew(*u8(w.p), c * #T))
+    w.cap = c
+  }
+  w.p[w.n] = x
+  w.n += 1
+}
+
+@ glast<T> (w *%Vec2<T>) %Opt<T> {
+  ? w.n == 0 {
+    ^ %Opt|None
+  }
+  ^ %Opt|Some(w.p[w.n - 1])
+}
+
+@ gmax<T> (a T, b T) T {
+  ? a > b {
+    ^ a
+  }
+  ^ b
+}
+
+@ show (o %Opt<s64>) v {
+  ?? o {
+    |Some(x) {
+      ps("some ")
+      pnl(x)
+    }
+    |None {
+      ps("none\n")
+    }
+  }
+}
+
+@! () s64 {
+  $~ a %Vec2<s64> = gnew()
+  gpush(&a, 10)
+  gpush(&a, 20)
+  gpush(&a, 30)
+  pn(a.n)
+  pc(` )
+  pnl(a.p[2])
+  $~ fs = gnew<f64>()
+  gpush(&fs, 2.5)
+  pfl(fs.p[0], 2)
+  $~ e %Vec2<s64> = gnew()
+  gpush(&e, 7)
+  show(glast(&e))
+  e.n = 0
+  show(glast(&e))
+  pn(gmax(4, 9))
+  pc(` )
+  pnl(s64(gmax(u8(1), u8(0))))
+  $ pr %Pair<u8, f64> = %Pair{ a: 1, b: 2.0 }
+  pn(#%Pair<u8, f64>)
+  pc(` )
+  pnl(#%Vec2<%Vec2<s64>>)
+  ^ 0
+}

@@ -49,6 +49,7 @@ class Parser:
         self.file = filename
         self.toks = lex(src, filename)
         self.i = 0
+        self.split = []         # `>>` tokens narrowed to `>` by parse_targs
 
     # -- token helpers -------------------------------------------------------
     @property
@@ -163,6 +164,7 @@ class Parser:
         t = self.next()
         entry = (t.val == "@!")
         name = "@!" if entry else self.expect_id("function name")
+        tparams = None if entry else self.parse_tparams()
         self.expect("(", "to open the parameter list")
         params = []
         if not self.at(")"):
@@ -176,12 +178,13 @@ class Parser:
         ret = self.parse_type()
         body = self.parse_block()
         self.end_stmt()
-        return A.FnDecl(name, params, ret, body, entry, True,
+        return A.FnDecl(name, params, ret, body, entry, True, tparams,
                         line=t.line, col=t.col)
 
     def parse_struct(self):
         t = self.expect("%")
         name = self.expect_id("struct name")
+        tparams = self.parse_tparams()
         self.expect("{", "to open the struct body")
         self.skip_nl()
         fields = []
@@ -193,11 +196,12 @@ class Parser:
             self.skip_nl()
         self.expect("}")
         self.end_stmt()
-        return A.StructDecl(name, fields, line=t.line, col=t.col)
+        return A.StructDecl(name, fields, tparams, line=t.line, col=t.col)
 
     def parse_sum(self):
         t = self.expect("%|")
         name = self.expect_id("sum type name")
+        tparams = self.parse_tparams()
         self.expect("{", "to open the sum body")
         self.skip_nl()
         variants = []
@@ -217,7 +221,7 @@ class Parser:
             self.skip_nl()
         self.expect("}")
         self.end_stmt()
-        return A.SumDecl(name, variants, line=t.line, col=t.col)
+        return A.SumDecl(name, variants, tparams, line=t.line, col=t.col)
 
     def parse_global(self):
         t = self.next()
@@ -260,11 +264,61 @@ class Parser:
             return A.TArr(n, self.parse_type(), line=t.line, col=t.col)
         if self.at("%"):
             self.next()
-            return A.TNamed(self.expect_id("type name"), line=t.line, col=t.col)
+            name = self.expect_id("type name")
+            return A.TNamed(name, self.parse_targs(), line=t.line, col=t.col)
         if t.kind == "ID":
             self.next()
             return A.TName(t.val, line=t.line, col=t.col)
         self.err("expected a type")
+
+    def parse_tparams(self):
+        """<T, U> after a declared name, or None."""
+        if not self.at("<"):
+            return None
+        self.next()
+        out = []
+        while True:
+            out.append(self.expect_id("type parameter name"))
+            if not self.eat(","):
+                break
+        self.expect(">", "to close the type parameter list")
+        return out
+
+    def parse_targs(self):
+        """<type, ...> after a generic name, or None. A closing `>>` is
+        split, so %Vec<%Vec<s64>> needs no space."""
+        if not self.at("<"):
+            return None
+        self.next()
+        out = []
+        while True:
+            out.append(self.parse_type())
+            if not self.eat(","):
+                break
+        if self.at(">>"):
+            self.split.append(self.t)
+            self.t.val = ">"
+        else:
+            self.expect(">", "to close the type argument list")
+        return out
+
+    def try_call_targs(self):
+        """At `<` after a name: `name<types>(` is a generic call. Anything
+        else is a comparison, and the parser is left where it was."""
+        save = self.i
+        nsplit = len(self.split)
+        try:
+            targs = self.parse_targs()
+            if self.at("("):
+                self.last_targs = targs
+                return targs
+        except ParseError:
+            pass
+        for tok in self.split[nsplit:]:
+            tok.val = ">>"
+        del self.split[nsplit:]
+        self.i = save
+        return None
 
     def star_is_cast(self):
         """At a statement-leading `*`: is this `*T(expr)...`, a pointer cast,
@@ -506,6 +560,12 @@ class Parser:
                 idx = self.parse_expr()
                 self.expect("]")
                 e = A.Index(e, idx, line=t.line, col=t.col)
+            elif self.at("<") and isinstance(e, A.Ident) \
+                    and self.try_call_targs() is not None:
+                targs = self.last_targs
+                self.next()
+                args = self.parse_args()
+                e = A.Call(e.name, args, targs, line=t.line, col=t.col)
             elif self.at("("):
                 self.next()
                 args = self.parse_args()
@@ -580,13 +640,14 @@ class Parser:
         if self.at("%"):
             self.next()
             name = self.expect_id("type name")
+            targs = self.parse_targs()
             if self.at("|"):
                 self.next()
                 vn = self.expect_id("variant name")
                 args = []
                 if self.eat("("):
                     args = self.parse_args()
-                return A.SumLit(name, vn, args, line=t.line, col=t.col)
+                return A.SumLit(name, vn, args, targs, line=t.line, col=t.col)
             self.expect("{", "to open a struct literal")
             self.skip_nl()
             inits = []
@@ -597,7 +658,7 @@ class Parser:
                 self.eat(",")
                 self.skip_nl()
             self.expect("}")
-            return A.StructLit(name, inits, line=t.line, col=t.col)
+            return A.StructLit(name, inits, targs, line=t.line, col=t.col)
         if t.kind == "ID":
             # a cast is a primitive type name applied like a call: s64(x)
             if t.val in PRIM_NAMES and self.peek().is_p("("):

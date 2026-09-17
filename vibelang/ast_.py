@@ -18,7 +18,8 @@ def _mk(name, fields):
 
     def __init__(self, *args, line=0, col=0):
         Node.__init__(self, line, col)
-        assert len(args) == len(fields), (name, len(args), len(fields))
+        assert len(args) <= len(fields), (name, len(args), len(fields))
+        args = list(args) + [None] * (len(fields) - len(args))
         for f, a in zip(fields, args):
             setattr(self, f, a)
 
@@ -34,14 +35,14 @@ def _mk(name, fields):
 TName = _mk("TName", ["name"])            # s64, b, v ...
 TPtr = _mk("TPtr", ["to"])
 TArr = _mk("TArr", ["n", "elem"])
-TNamed = _mk("TNamed", ["name"])          # %Point
+TNamed = _mk("TNamed", ["name", "targs"])          # %Point
 TFn = _mk("TFn", ["params", "ret"])       # @(s64, s64) s64
 
 # ---- declarations ----------------------------------------------------------
 ExternDecl = _mk("ExternDecl", ["lib", "name", "params", "ret", "variadic"])
-FnDecl = _mk("FnDecl", ["name", "params", "ret", "body", "entry", "pub"])
-StructDecl = _mk("StructDecl", ["name", "fields"])
-SumDecl = _mk("SumDecl", ["name", "variants"])
+FnDecl = _mk("FnDecl", ["name", "params", "ret", "body", "entry", "pub", "tparams"])
+StructDecl = _mk("StructDecl", ["name", "fields", "tparams"])
+SumDecl = _mk("SumDecl", ["name", "variants", "tparams"])
 GlobalDecl = _mk("GlobalDecl", ["name", "ty", "init", "mut", "const"])
 Include = _mk("Include", ["path"])
 
@@ -71,7 +72,7 @@ Ident = _mk("Ident", ["name"])
 Intrinsic = _mk("Intrinsic", ["name", "args"])   # \sqrt(x)
 Bin = _mk("Bin", ["op", "a", "b"])
 Un = _mk("Un", ["op", "a"])
-Call = _mk("Call", ["name", "args"])
+Call = _mk("Call", ["name", "args", "targs"])
 CallP = _mk("CallP", ["callee", "args"])
 FnRef = _mk("FnRef", ["name"])            # @name  -- address of a function
 Syscall = _mk("Syscall", ["num", "args"])
@@ -81,6 +82,6 @@ Deref = _mk("Deref", ["p"])
 Addr = _mk("Addr", ["e"])
 Cast = _mk("Cast", ["ty", "e"])
 SizeOf = _mk("SizeOf", ["ty"])
-StructLit = _mk("StructLit", ["tyname", "inits"])
+StructLit = _mk("StructLit", ["tyname", "inits", "targs"])
 ArrLit = _mk("ArrLit", ["items"])
-SumLit = _mk("SumLit", ["tyname", "variant", "args"])
+SumLit = _mk("SumLit", ["tyname", "variant", "args", "targs"])
