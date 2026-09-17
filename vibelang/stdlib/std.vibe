@@ -199,3 +199,44 @@
 @ unlock (l *s64) v {
   \store(l, 0)
 }
+
+; ---- long names ----------------------------------------------------------------
+; The two-letter names above are the originals; these read better and cost
+; the same once compiled (functions you do not call are not emitted).
+
+@ print (s %Str) v {
+  ps(s)
+}
+
+@ println (s %Str) v {
+  ps(s)
+  nl()
+}
+
+@ printi (x s64) v {
+  pn(x)
+}
+
+@ printiln (x s64) v {
+  pnl(x)
+}
+
+@ eprint (s %Str) v {
+  pe(s)
+}
+
+@ exit (c s64) v {
+  ex(c)
+}
+
+@ copy (d *u8, s *u8, n s64) v {
+  cp(d, s, n)
+}
+
+@ fill (d *u8, c u8, n s64) v {
+  set(d, c, n)
+}
+
+@ cstrlen (p *u8) s64 {
+  ^ ln(p)
+}

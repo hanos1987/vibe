@@ -44,7 +44,7 @@ FnDecl = _mk("FnDecl", ["name", "params", "ret", "body", "entry", "pub", "tparam
 StructDecl = _mk("StructDecl", ["name", "fields", "tparams"])
 SumDecl = _mk("SumDecl", ["name", "variants", "tparams"])
 GlobalDecl = _mk("GlobalDecl", ["name", "ty", "init", "mut", "const"])
-Include = _mk("Include", ["path"])
+Include = _mk("Include", ["path", "ns"])
 
 # ---- statements ------------------------------------------------------------
 Let = _mk("Let", ["name", "ty", "init", "mut"])

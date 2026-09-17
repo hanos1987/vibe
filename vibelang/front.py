@@ -8,6 +8,7 @@ import os
 import struct
 
 from . import ast_ as A
+from . import names
 from . import ir
 from .parser import parse
 from .types import (VOID, BOOL, S8, S16, S32, S64, U8, U16, U32, U64, F32, F64,
@@ -49,6 +50,7 @@ class Front:
         self.constants = {}      # name -> (Type, int)  -- $$ comptime values
         self.include_dirs = list(include_dirs)
         self.seen_files = set()
+        self.namespaces = set()
         self.decls = []
         self.f = None            # current ir.Func
         self.scope = None
@@ -77,11 +79,11 @@ class Front:
             (getattr(node, "_file", None) or self.file), node.line, node.col, msg))
 
     # -- loading -------------------------------------------------------------
-    def load(self, path):
+    def load(self, path, ns=None, group=None):
         path = os.path.abspath(path)
-        if path in self.seen_files:
+        if (path, ns) in self.seen_files:
             return
-        self.seen_files.add(path)
+        self.seen_files.add((path, ns))
         with open(path, "r") as fh:
             src = fh.read()
         decls = parse(src, os.path.basename(path))
@@ -94,11 +96,27 @@ class Front:
                 cand += [os.path.join(x, d.path) for x in self.include_dirs]
                 for c in cand:
                     if os.path.exists(c):
-                        self.load(c)
+                        if d.ns is not None and ns is None:
+                            # a namespaced include: load its whole tree,
+                            # then rename it in one go
+                            if d.ns in self.namespaces:
+                                raise CheckError(
+                                    "%s:%d: namespace %r is already in use"
+                                    % (os.path.basename(path), d.line, d.ns))
+                            self.namespaces.add(d.ns)
+                            grp = []
+                            self.load(c, d.ns, grp)
+                            only = [x for (_, x) in grp]
+                            names.prefix(only, d.ns, names.declared(only))
+                            self.decls.extend(grp)
+                        else:
+                            self.load(c, ns, group)
                         break
                 else:
                     raise CheckError("%s:%d: cannot find include %r" %
                                      (os.path.basename(path), d.line, d.path))
+            elif group is not None:
+                group.append((os.path.basename(path), d))
             else:
                 self.decls.append((os.path.basename(path), d))
 
@@ -643,7 +661,7 @@ class Front:
                     and s.cond.v == 1 and not self.has_break(s.body):
                 return True
             if isinstance(s, A.ExprStmt) and isinstance(s.expr, A.Call) \
-                    and s.expr.name == "ex":
+                    and s.expr.name in ("ex", "exit"):
                 return True
         return False
 
@@ -966,7 +984,25 @@ class Front:
         self.err(node, "type mismatch: expected %s, got %s" % (want, got))
 
     # -- lvalues -------------------------------------------------------------
+    def ns_fold(self, e):
+        """g.name, where g is an include namespace, is one qualified name."""
+        def qualified(x):
+            if isinstance(x, A.Field) and isinstance(x.base, A.Ident) \
+                    and x.base.name in self.namespaces \
+                    and self.scope.get(x.base.name) is None:
+                return "%s.%s" % (x.base.name, x.name)
+            return None
+        q = qualified(e)
+        if q is not None:
+            return A.Ident(q, line=e.line, col=e.col)
+        if isinstance(e, A.CallP):
+            q = qualified(e.callee)
+            if q is not None:
+                return A.Call(q, e.args, line=e.line, col=e.col)
+        return e
+
     def lval(self, e):
+        e = self.ns_fold(e)
         f = self.f
         if isinstance(e, A.Ident):
             ent = self.scope.get(e.name)
@@ -1039,6 +1075,7 @@ class Front:
     # -- rvalues -------------------------------------------------------------
     def rval(self, e, want):
         f = self.f
+        e = self.ns_fold(e)
 
         if isinstance(e, A.IntLit) and want is not None \
                 and want.kind == "float":

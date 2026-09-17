@@ -1,0 +1,29 @@
+; namespaced include: names live under g. and do not collide with std
+; out: 5 6
+; out: 300
+; out: 1
+; out: 9
+; out: 11
+<<"std.vibe"
+<<"lib/geom.vibe" g
+
+%Pt { z s64 }
+
+@ area (p %Pt) s64 {
+  ^ p.z
+}
+
+@! () s64 {
+  $ a %g.Pt = %g.Pt{ x: 1, y: 2 }
+  $ b %g.Pt = %g.Pt{ x: 5, y: 6 }
+  $ m %g.Pt = g.max(a, b)
+  pn(m.x)
+  pc(` )
+  pnl(m.y)
+  pnl(g.area(m))
+  pnl(g.calls)
+  pnl(area(%Pt{ z: 9 }))
+  $ f @(%g.Pt) s64 = @g.norm1
+  pnl(max(f(b), g.SCALE))
+  ^ 0
+}

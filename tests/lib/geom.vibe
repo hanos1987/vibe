@@ -1,0 +1,19 @@
+; a library with names that would collide with std and with the test
+<<"geom_inner.vibe"
+
+%Pt { x s64, y s64 }
+$$ SCALE s64 = 10
+$~ calls s64 = 0
+
+@ max (a %Pt, b %Pt) %Pt {
+  calls += 1
+  ? norm1(a) > norm1(b) {
+    ^ a
+  }
+  ^ b
+}
+
+@ area (p %Pt) s64 {
+  $ max s64 = p.x * p.y
+  ^ max * SCALE
+}

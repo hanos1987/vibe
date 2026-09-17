@@ -119,8 +119,9 @@ class Parser:
             if self.t.kind != "STR":
                 self.err("expected \"path\" after <<")
             p = self.next().val.decode("utf-8")
+            ns = self.next().val if self.t.kind == "ID" else None
             self.end_stmt()
-            return A.Include(p, line=t.line, col=t.col)
+            return A.Include(p, ns, line=t.line, col=t.col)
         if self.at("@<"):
             return self.parse_extern()
         if self.at("@", "@!"):
@@ -264,12 +265,20 @@ class Parser:
             return A.TArr(n, self.parse_type(), line=t.line, col=t.col)
         if self.at("%"):
             self.next()
-            name = self.expect_id("type name")
+            name = self.dotted("type name")
             return A.TNamed(name, self.parse_targs(), line=t.line, col=t.col)
         if t.kind == "ID":
             self.next()
             return A.TName(t.val, line=t.line, col=t.col)
         self.err("expected a type")
+
+    def dotted(self, what):
+        """name or ns.name"""
+        name = self.expect_id(what)
+        if self.at(".") and self.peek().kind == "ID":
+            self.next()
+            name = "%s.%s" % (name, self.next().val)
+        return name
 
     def parse_tparams(self):
         """<T, U> after a declared name, or None."""
@@ -635,11 +644,11 @@ class Parser:
             return A.Syscall(num, args, line=t.line, col=t.col)
         if self.at("@"):
             self.next()
-            return A.FnRef(self.expect_id("function name"),
+            return A.FnRef(self.dotted("function name"),
                            line=t.line, col=t.col)
         if self.at("%"):
             self.next()
-            name = self.expect_id("type name")
+            name = self.dotted("type name")
             targs = self.parse_targs()
             if self.at("|"):
                 self.next()
