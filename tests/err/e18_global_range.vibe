@@ -1,0 +1,5 @@
+; err: does not fit
+$ g u8 = 300
+@! () s64 {
+  ^ 0
+}

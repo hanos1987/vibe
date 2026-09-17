@@ -1,0 +1,10 @@
+; err: without returning
+@ f (x s64) s64 {
+  ? (x > 0) {
+    ^ 1
+  }
+}
+
+@! () s64 {
+  ^ f(1)
+}

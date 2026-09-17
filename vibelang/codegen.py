@@ -454,8 +454,19 @@ class CodeGen:
             d, o, bits = ins.a, ins.b, ins.e
             x = self.rdf(ins.c, XT0)
             y = self.rdf(ins.d, XT1)
-            a.ucomis(x, y, bits)
-            a.setcc(UNSIGNED_CC[o], RAX)
+            # IEEE: every ordered compare is false on NaN, != is true. `above`
+            # is false when unordered, so < and <= compare the other way round
+            if o in ("<", "<="):
+                a.ucomis(y, x, bits)
+                a.setcc("a" if o == "<" else "ae", RAX)
+            elif o in (">", ">="):
+                a.ucomis(x, y, bits)
+                a.setcc("a" if o == ">" else "ae", RAX)
+            else:
+                a.ucomis(x, y, bits)
+                a.setcc("e" if o == "==" else "ne", RAX)
+                a.setcc("np" if o == "==" else "p", R10)
+                a.alu_rr("&" if o == "==" else "|", RAX, R10)
             a.movzx(RAX, RAX, 1)
             self.done(d, RAX)
             return
@@ -477,9 +488,11 @@ class CodeGen:
 
         if op == "fun":
             d, bits = ins.a, ins.d
+            # flip the sign bit, so that -(0.0) is -0.0
             x = self.rdf(ins.c, XT1)
-            a.xorps(XT0, XT0)
-            a.fbin("-", XT0, x, bits)
+            a.mov_ri(RAX, (1 << 31) if bits == 32 else -(1 << 63))
+            a.movq_xr(XT0, RAX)
+            a.xorps(XT0, x)
             self.donef(d, XT0)
             return
 

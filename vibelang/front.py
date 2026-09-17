@@ -274,8 +274,10 @@ class Front:
             v = self.const_eval(e)
             if v is None:
                 self.err(d, "global initialiser must be a constant")
-            return (int(v) & ((1 << (8 * ty.size)) - 1)).to_bytes(
-                ty.size, "little")
+            bits = 8 * ty.size
+            if not (-(1 << (bits - 1)) <= int(v) < (1 << bits)):
+                self.err(d, "%d does not fit in %s" % (v, ty))
+            return (int(v) & ((1 << bits) - 1)).to_bytes(ty.size, "little")
         if ty.kind == "arr" and isinstance(e, A.ArrLit):
             if len(e.items) > ty.n:
                 self.err(d, "%d values for an array of %d"
@@ -424,6 +426,9 @@ class Front:
         for st in d.body:
             self.stmt(st)
 
+        if sig.ret != VOID and not self.returns(d.body):
+            self.err(d, "function %r can reach its end without returning "
+                        "a %s" % (d.name, sig.ret))
         # implicit return for void functions
         if sig.ret == VOID:
             f.emit("ret", None, False)
@@ -442,11 +447,47 @@ class Front:
             self.stmt(s)
         self.scope = saved
 
+    def returns(self, stmts):
+        """True when control cannot fall out of the bottom of stmts."""
+        for s in stmts:
+            if isinstance(s, A.Return):
+                return True
+            if isinstance(s, A.If) and s.els is not None:
+                els = s.els if isinstance(s.els, list) else [s.els]
+                if self.returns(s.then) and self.returns(els):
+                    return True
+            if isinstance(s, A.Match) and s.arms and all(
+                    self.returns(body) for (_, body) in s.arms):
+                return True
+            if isinstance(s, A.While) and isinstance(s.cond, A.IntLit) \
+                    and s.cond.v == 1 and not self.has_break(s.body):
+                return True
+            if isinstance(s, A.ExprStmt) and isinstance(s.expr, A.Call) \
+                    and s.expr.name == "ex":
+                return True
+        return False
+
+    def has_break(self, stmts):
+        for s in stmts:
+            if isinstance(s, A.Break):
+                return True
+            if isinstance(s, A.If):
+                els = s.els if isinstance(s.els, list) else \
+                    ([s.els] if s.els is not None else [])
+                if self.has_break(s.then) or self.has_break(els):
+                    return True
+            if isinstance(s, A.Match) and any(
+                    self.has_break(b) for (_, b) in s.arms):
+                return True
+        return False
+
     def stmt(self, s):
         f = self.f
         if isinstance(s, A.Let):
             ty = self.resolve(s.ty) if s.ty is not None else None
             if s.init is None:
+                if self.scope.names.get(s.name) is not None:
+                    self.err(s, "%r is already bound in this block" % s.name)
                 # `$~ name T` with no value is zero-initialised
                 if ty.is_agg:
                     slot = f.slot(ty.size, ty.align, s.name)
@@ -755,10 +796,21 @@ class Front:
     def rval(self, e, want):
         f = self.f
 
+        if isinstance(e, A.IntLit) and want is not None \
+                and want.kind == "float":
+            v = f.vreg(True)
+            f.emit("fconst", v, float(e.v), want.bits)
+            return v, want
+
         if isinstance(e, A.IntLit):
             ty = want if (want is not None and want.kind in ("int", "ptr", "bool")) else S64
             if ty.kind == "bool" and e.v not in (0, 1):
                 ty = S64
+            if ty.kind == "int" and ty.size < 8:
+                bits = ty.size * 8
+                top = (1 << (bits - 1)) if ty.signed else (1 << bits) - 1
+                if e.v > top:
+                    self.err(e, "%d does not fit in %s" % (e.v, ty))
             v = f.vreg()
             f.emit("const", v, e.v & 0xFFFFFFFFFFFFFFFF if e.v >= 0 else e.v)
             return v, ty
@@ -992,6 +1044,12 @@ class Front:
             self.err(e, "cannot cast aggregates")
         if to == vt:
             return v, to
+        if to == BOOL and vt.kind in ("int", "ptr"):
+            z = f.vreg()
+            f.emit("const", z, 0)
+            d = f.vreg()
+            f.emit("cmp", d, "!=", v, z, False)
+            return d, to
         d = f.vreg(to.kind == "float")
         f.emit("cvt", d, v, vt, to)
         return d, to
@@ -1053,10 +1111,39 @@ class Front:
             f.emit("label", lend)
             return d, BOOL
 
+        if self.is_lit(e.a) and not self.is_lit(e.b):
+            # `(5 == x)`: the literal takes its type from the other side
+            b, bt = self.rval(e.b, want if op not in CMP else None)
+            a, at = self.rval(e.a, S64 if bt.kind == "ptr" else bt)
+            return self.finish_bin(e, op, a, at, b, bt)
         a, at = self.rval(e.a, want if op not in CMP else None)
         # a literal offset on a pointer is a count, not another pointer
         b, bt = self.rval(e.b, S64 if (at.kind == "ptr" and op not in CMP)
                           else at)
+        return self.finish_bin(e, op, a, at, b, bt)
+
+    def is_lit(self, e):
+        if isinstance(e, A.Un) and e.op == "-":
+            return self.is_lit(e.a)
+        return isinstance(e, (A.IntLit, A.FltLit))
+
+    def finish_bin(self, e, op, a, at, b, bt):
+        f = self.f
+        if op in CMP and (at.is_agg or bt.is_agg):
+            if at == bt and at == self.types.get("Str") \
+                    and op in ("==", "!=") and "seq" in self.fns:
+                d = f.vreg()
+                f.emit("call", d, "seq", [a, b], [False, False], False)
+                f.calls = True
+                if op == "!=":
+                    z = f.vreg()
+                    f.emit("const", z, 0)
+                    n = f.vreg()
+                    f.emit("cmp", n, "==", d, z, False)
+                    d = n
+                return d, BOOL
+            self.err(e, "%s cannot be applied to %s; compare the fields "
+                        "(strings: include std.vibe, or use seq)" % (op, at))
 
         if op in CMP:
             if at.kind == "float" or bt.kind == "float":

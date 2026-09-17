@@ -1,0 +1,5 @@
+; err: does not fit
+@! () s64 {
+  $ w u8 = 300
+  ^ 0
+}

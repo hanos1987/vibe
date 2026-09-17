@@ -1,0 +1,6 @@
+; err: already bound
+@! () s64 {
+  $ a s64 = 1
+  $~ a s64
+  ^ a
+}

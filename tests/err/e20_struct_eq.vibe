@@ -1,0 +1,9 @@
+; err: cannot be applied
+%P { x s64 }
+@! () s64 {
+  $ p %P = %P{ x: 1 }
+  ? (p == p) {
+    ^ 1
+  }
+  ^ 0
+}

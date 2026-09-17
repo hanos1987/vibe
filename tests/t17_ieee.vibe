@@ -1,0 +1,38 @@
+; IEEE compares on NaN, signed zero, literal typing, string ==, bool cast
+; out: 0 0 1 0
+; out: -inf
+; out: ok lit
+; out: eq ne
+; out: 1
+<<"std.vibe"
+
+@! () s64 {
+  $ z f64 = 0.0
+  $ nan f64 = (z / z)
+  pn(s64((nan == nan)))
+  pc(` )
+  pn(s64((nan < 1.0)))
+  pc(` )
+  pn(s64((nan != nan)))
+  pc(` )
+  pn(s64((nan >= nan)))
+  nl()
+  $ nz f64 = -z
+  ? ((1.0 / nz) < 0.0) {
+    ps("-inf\n")
+  }
+  $ a u8 = 5
+  $ h f64 = 5
+  ? ((5 == a) && ((h * 2) == 10.0)) {
+    ps("ok lit\n")
+  }
+  $ s %Str = "abc"
+  ? (s == "abc") {
+    ps("eq ")
+  }
+  ? (s != "abd") {
+    ps("ne\n")
+  }
+  pnl(s64((b(2) == b(1))))
+  ^ 0
+}

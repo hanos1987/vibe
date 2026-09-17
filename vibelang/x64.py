@@ -368,6 +368,17 @@ class Asm:
         else:
             self._sse(None, 0x2E, xmm, rm)
 
+    def movq_xr(self, xmm, r):
+        """movq xmm, r64"""
+        self._sse(0x66, 0x6E, xmm, r, w=1)
+
+    def movq_rx(self, r, xmm):
+        """movq r64, xmm"""
+        self._sse(0x66, 0x7E, xmm, r, w=1)
+
+    def sqrts(self, xmm, rm, bits=64):
+        self._sse(0xF2 if bits == 64 else 0xF3, 0x51, xmm, rm)
+
     def xorps(self, xmm, rm):
         self._sse(None, 0x57, xmm, rm)
 
