@@ -4,6 +4,8 @@
   vibec prog.vibe --run        compile to a temp file and run it
   vibec prog.vibe --ir         print the mid-level IR
   vibec prog.vibe -O0          no optimisation, no register allocation
+  vibec prog.vibe --backend c  build through gcc/clang -O3 (fastest code)
+  vibec prog.vibe --emit-c     print the generated C
   vibec --version              print the version
 
 No assembler, linker or C library is involved: vibec writes the ELF bytes.
@@ -49,6 +51,7 @@ def main(argv=None):
     out = None
     mode = "build"
     noopt = False
+    backend = "native"
     i = 1
     while i < len(argv):
         x = argv[i]
@@ -68,6 +71,17 @@ def main(argv=None):
             mode = "ir"
         elif x == "--run":
             mode = "run"
+        elif x == "--backend" or x.startswith("--backend="):
+            if "=" in x:
+                backend = x.split("=", 1)[1]
+            else:
+                i += 1
+                backend = argv[i] if i < len(argv) else ""
+            if backend not in ("native", "c"):
+                sys.stderr.write("vibec: --backend is native or c\n")
+                return 2
+        elif x == "--emit-c":
+            mode = "c"
         elif x == "-O0":
             noopt = True
         elif x.startswith("-"):
@@ -94,7 +108,20 @@ def main(argv=None):
         print(prog.dump())
         return 0
 
-    blob = compile_program(prog, opt=not noopt)
+    if mode == "c":
+        from .cback import emit_c
+        sys.stdout.write(emit_c(prog))
+        return 0
+
+    if backend == "c":
+        from .cback import compile_program_c
+        try:
+            blob = compile_program_c(prog)
+        except RuntimeError as e:
+            sys.stderr.write("vibec: %s\n" % e)
+            return 1
+    else:
+        blob = compile_program(prog, opt=not noopt)
 
     if mode == "run":
         fd, path = tempfile.mkstemp(prefix="vibe-")

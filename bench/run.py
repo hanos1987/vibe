@@ -41,36 +41,31 @@ def timeit(path):
 
 def main():
     subprocess.run([sys.executable, os.path.join(HERE, "_mkc.py")], check=True)
+    cols = ["VIBE", "VIBE -c", "gcc -O0", "gcc -O2", "gcc -O3"]
     rows = []
     for name in BENCHES:
         v = os.path.join(HERE, name + ".vibe")
         c = os.path.join(HERE, name + ".c")
-        bv = os.path.join(HERE, name + ".vibe.bin")
-        b0 = os.path.join(HERE, name + ".c0.bin")
-        b2 = os.path.join(HERE, name + ".c2.bin")
-
-        sh([sys.executable, VIBEC, v, "-o", bv])
-        sh(["gcc", "-O0", "-o", b0, c])
-        sh(["gcc", "-O2", "-o", b2, c])
-
-        tv, ov = timeit(bv)
-        t0, o0 = timeit(b0)
-        t2, o2 = timeit(b2)
-        agree = (ov == o0 == o2)
-        rows.append((name, tv, t0, t2, agree, ov))
+        bins = [os.path.join(HERE, "%s.%d.bin" % (name, k)) for k in range(5)]
+        sh([sys.executable, VIBEC, v, "-o", bins[0]])
+        sh([sys.executable, VIBEC, v, "--backend=c", "-o", bins[1]])
+        sh(["gcc", "-O0", "-o", bins[2], c])
+        sh(["gcc", "-O2", "-o", bins[3], c])
+        sh(["gcc", "-O3", "-o", bins[4], c])
+        res = [timeit(b) for b in bins]
+        outs = set(o for (_, o) in res)
+        rows.append((name, [t for (t, _) in res], len(outs) == 1, res[0][1]))
 
     w = max(len(r[0]) for r in rows) + 2
     print()
-    print("%-*s %10s %10s %10s   %8s %8s  %s" %
-          (w, "bench", "VIBE", "gcc -O0", "gcc -O2",
-           "vs -O0", "vs -O2", "result"))
-    print("-" * (w + 62))
-    for (name, tv, t0, t2, agree, ov) in rows:
-        print("%-*s %9.3fs %9.3fs %9.3fs   %7.2fx %7.2fx  %s" %
-              (w, name, tv, t0, t2, t0 / tv, t2 / tv,
-               ov if agree else "MISMATCH " + ov))
-    print("\n(>1.00x means VIBE is faster; all outputs verified identical"
-          " unless marked MISMATCH)")
+    print("%-*s" % (w, "bench") + "".join("%10s" % c for c in cols) + "  result")
+    print("-" * (w + 10 * len(cols) + 10))
+    for (name, ts, agree, out) in rows:
+        print("%-*s" % (w, name) + "".join("%9.3fs" % t for t in ts) +
+              "  " + (out if agree else "MISMATCH " + out))
+    print("\nVIBE = native backend (no toolchain). VIBE -c = --backend=c"
+          " (gcc -O3\nunder the hood). All outputs verified"
+          " identical unless marked MISMATCH.")
 
 
 if __name__ == "__main__":
