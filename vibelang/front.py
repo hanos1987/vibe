@@ -1132,8 +1132,6 @@ class Front:
             else:
                 argv.append(v)
                 argf.append(pt.kind == "float")
-        if len(argv) > 6:
-            self.err(e, "at most 6 arguments are supported in this release")
         if sig.ret == VOID:
             f.emit("call", None, e.name, argv, argf, False)
             return None, VOID
@@ -1172,8 +1170,6 @@ class Front:
             else:
                 argv.append(v)
                 argf.append(pt.kind == "float")
-        if len(argv) > 6:
-            self.err(e, "at most 6 arguments are supported in this release")
         if sig.ret == VOID:
             f.emit("calli", None, fv, argv, argf, False)
             return None, VOID

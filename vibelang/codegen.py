@@ -101,7 +101,8 @@ class CodeGen:
         f.frame = (cur + 15) & ~15
         # a frame is only needed when something actually lives on the stack;
         # saved registers can go on the machine stack instead
-        self.frameless = not stack_needed and not f.slots
+        self.frameless = (not stack_needed and not f.slots
+                          and not self.stack_params(f))
         if self.frameless:
             f.frame = 0
         return f.frame
@@ -150,6 +151,10 @@ class CodeGen:
                 self.asm.movsd_load(l[1], x, 64)
         else:
             self.asm.movsd_store(self.va(v), x, 64)
+
+    def stack_params(self, f):
+        ni = sum(1 for (_, t, _) in f.params if t.kind != "float")
+        return ni > len(INT_ARG_REGS) or (len(f.params) - ni) > 8
 
     def narrow(self, r, ty):
         if ty is None:
@@ -290,8 +295,15 @@ class CodeGen:
         flts = 0
         gp_moves = []
         xmm_moves = []
+        nstack = 0
+        late = []
         for (pname, pty, pv) in f.params:
-            if pty.kind == "float":
+            isf = pty.kind == "float"
+            if (isf and flts >= 8) or (not isf and ints >= len(INT_ARG_REGS)):
+                # passed on the stack: above the return address and saved rbp
+                late.append((pv, isf, Mem(RBP, 16 + 8 * nstack)))
+                nstack += 1
+            elif isf:
                 src = flts
                 flts += 1
                 if self.loc[pv][0] == "x":
@@ -307,6 +319,15 @@ class CodeGen:
                     a.mov_mr(self.va(pv), src)
         self.parallel_move(gp_moves)
         self.parallel_move(xmm_moves, float_regs=True)
+        # the scratch registers are argument registers too, so stack
+        # parameters are fetched only once the register ones are in place
+        for (pv, isf, m) in late:
+            if isf:
+                a.movsd_load(XT0, m, 64)
+                self.donef(pv, XT0)
+            else:
+                a.mov_rm(RAX, m)
+                self.done(pv, RAX)
 
         for i, ins in enumerate(f.ins):
             nxt = f.ins[i + 1] if i + 1 < len(f.ins) else None
@@ -637,20 +658,38 @@ class CodeGen:
         flts = 0
         gp = []
         xmm = []
+        stack = []
         for v, isf in zip(args, argf):
-            kind, val = self.src_of(v)
-            if isf:
+            if isf and flts < 8:
+                kind, val = self.src_of(v)
                 xmm.append((flts, kind, val))
                 flts += 1
-            else:
+            elif not isf and ints < len(INT_ARG_REGS):
+                kind, val = self.src_of(v)
                 gp.append((INT_ARG_REGS[ints], kind, val))
                 ints += 1
+            else:
+                stack.append((v, isf))
+        # arguments past the registers go on the stack, first one lowest,
+        # in a block kept 16-byte aligned; r10/xmm15 are pure scratch here
+        room = (len(stack) * 8 + 15) & ~15
+        if room:
+            a.alu_ri("-", RSP, room)
+            for k, (v, isf) in enumerate(stack):
+                if isf:
+                    x = self.rdf(v, XT0)
+                    a.movsd_store(Mem(RSP, 8 * k), x, 64)
+                else:
+                    r = self.rd(v, R10)
+                    a.mov_mr(Mem(RSP, 8 * k), r)
         self.parallel_move(gp)
         self.parallel_move(xmm, float_regs=True)
         if indirect:
             a.call_r(RAX)
         else:
             a.call(name)
+        if room:
+            a.alu_ri("+", RSP, room)
         if d is not None:
             if retf:
                 self.donef(d, 0)

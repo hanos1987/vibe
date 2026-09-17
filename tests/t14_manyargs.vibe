@@ -1,0 +1,28 @@
+; more parameters than argument registers
+; out: 12345678
+; out: 55
+; out: 10.50
+; out: 36
+<<"std.vibe"
+
+@ dig (a s64, b s64, c s64, d s64, e s64, f s64, g s64, h s64) s64 {
+  ^ ((((((((((((((a * 10) + b) * 10) + c) * 10) + d) * 10) + e) * 10) + f) * 10) + g) * 10) + h)
+}
+
+@ sum10 (a s64, b s64, c s64, d s64, e s64, f s64, g s64, h s64, i s64, j s64) s64 {
+  $ x s64 = dig(a, b, c, d, e, f, g, h)
+  ^ (((((((((a + b) + c) + d) + e) + f) + g) + h) + i) + j)
+}
+
+@ fs (a f64, b f64, c f64, d f64, e f64, f f64, g f64, h f64, i f64, n s64) f64 {
+  ^ ((((((((a + b) + c) + d) + e) + f) + g) + h) + (i * f64(n)))
+}
+
+@! () s64 {
+  pnl(dig(1, 2, 3, 4, 5, 6, 7, 8))
+  pnl(sum10(1, 2, 3, 4, 5, 6, 7, 8, 9, 10))
+  pfl(fs(1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.25, 2), 2)
+  $ g @(s64, s64, s64, s64, s64, s64, s64, s64) s64 = @dig
+  pnl((g(0, 0, 0, 0, 0, 0, 3, 6) + 0))
+  ^ 0
+}
