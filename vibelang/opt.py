@@ -6,7 +6,7 @@ to a fixpoint. Every pass preserves observable behaviour, so the test suite
 can be run with and without them as an A/B oracle (`vibec -O0`).
 """
 
-from .ir import Ins
+from .ir import Ins, Func
 
 PURE = {"const", "fconst", "mov", "lea", "leag", "leas", "bin", "un", "cmp",
         "fcmp", "fbin", "fun", "load", "loadd", "loadx", "cvt", "lea_idx",
@@ -494,7 +494,111 @@ def prune(prog):
     return prog
 
 
+# ---- inlining ---------------------------------------------------------------
+#
+# Runs on the raw IR from the front end, before any other pass, so only the
+# front end's instruction set has to be understood here.
+
+# op -> (fields holding one vreg, fields holding a list of vregs)
+_VFIELDS = {
+    "const": ("a",), "fconst": ("a",), "mov": ("a", "b"), "lea": ("a",),
+    "leaf": ("a",), "leag": ("a",), "leas": ("a",), "bin": ("a", "c", "d"),
+    "un": ("a", "c"), "cmp": ("a", "c", "d"), "fcmp": ("a", "c", "d"),
+    "fbin": ("a", "c", "d"), "fun": ("a", "c"), "load": ("a", "b"),
+    "store": ("a", "b"), "memcpy": ("a", "b"), "memzero": ("a",),
+    "br": ("a",), "ret": ("a",), "call": ("a",), "calli": ("a", "b"),
+    "syscall": ("a",), "cvt": ("a", "b"), "label": (), "jmp": (), "trap": (),
+}
+INLINE_MAX = 40          # callee size, in IR instructions
+INLINE_GROWTH = 4000     # stop growing a caller past this
+
+
+def _inlinable(f):
+    if len(f.ins) > INLINE_MAX or f.name == "@!":
+        return False
+    return all(i.op in _VFIELDS for i in f.ins)
+
+
+def _splice(caller, call, callee, serial):
+    """IR for one inlined call: the callee body with fresh names."""
+    vmap = {}
+
+    def v(x):
+        if x not in vmap:
+            vmap[x] = caller.vreg(x in callee.float_vregs)
+        return vmap[x]
+
+    smap = {}
+    lmap = {}
+
+    def lab(name):
+        if name not in lmap:
+            lmap[name] = "%s$i%d_%s" % (name, serial, caller.name)
+        return lmap[name]
+
+    out = []
+    done = lab(".inl_done")
+    for (_, _, pv), arg in zip(callee.params, call.c):
+        out.append(Ins("mov", v(pv), arg))
+    for i in callee.ins:
+        if i.op == "ret":
+            if i.a is not None and call.a is not None:
+                out.append(Ins("mov", call.a, v(i.a)))
+            out.append(Ins("jmp", done))
+            continue
+        n = Ins(i.op, i.a, i.b, i.c, i.d, i.e)
+        for fld in _VFIELDS[i.op]:
+            x = getattr(n, fld)
+            if x is not None:
+                setattr(n, fld, v(x))
+        if i.op in ("call", "calli", "syscall"):
+            n.c = [v(x) for x in i.c]
+        if i.op == "lea":
+            if i.b.idx not in smap:
+                smap[i.b.idx] = caller.slot(i.b.size, i.b.align, i.b.name)
+            n.b = smap[i.b.idx]
+        elif i.op in ("label", "jmp"):
+            n.a = lab(i.a)
+        elif i.op == "br":
+            n.b, n.c = lab(i.b), lab(i.c)
+        out.append(n)
+    out.append(Ins("label", done))
+    return out
+
+
+def inline(prog):
+    """Two rounds, each inlining the bodies as they stood when the round
+    began; a self-recursive function is therefore unrolled a fixed number of
+    times and no more."""
+    serial = 0
+    for _ in range(2):
+        snap = {}
+        for f in prog.funcs:
+            if _inlinable(f):
+                c = Func(f.name, f.params, f.ret, f.sret)
+                c.ins = list(f.ins)
+                c.float_vregs = set(f.float_vregs)
+                c.calls = f.calls
+                snap[f.name] = c
+        for f in prog.funcs:
+            if not any(i.op == "call" and i.b in snap for i in f.ins):
+                continue
+            out = []
+            for i in f.ins:
+                if (i.op == "call" and i.b in snap
+                        and len(out) < INLINE_GROWTH):
+                    serial += 1
+                    callee = snap[i.b]
+                    out.extend(_splice(f, i, callee, serial))
+                    f.calls = f.calls or callee.calls
+                else:
+                    out.append(i)
+            f.ins = out
+    return prune(prog)
+
+
 def optimise(prog):
+    inline(prog)
     for f in prog.funcs:
         for _ in range(3):
             c = False
