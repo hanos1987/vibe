@@ -241,21 +241,7 @@ class Front:
                 label = "$g_" + d.name
                 init = None
                 if d.init is not None:
-                    if ty.kind == "float":
-                        fv = self.const_float(d.init)
-                        if fv is None:
-                            self.err(d, "a float global needs a literal value")
-                        init = (struct.pack("<d", fv) if ty.bits == 64
-                                else struct.pack("<f", fv))
-                    else:
-                        v = self.const_eval(d.init)
-                        if v is None:
-                            self.err(d, "global initialiser must be a constant")
-                        if ty.kind not in ("int", "bool", "ptr"):
-                            self.err(d, "only scalar globals may have an "
-                                        "initialiser")
-                        init = int(v).to_bytes(ty.size, "little",
-                                               signed=(v < 0))
+                    init = self.const_bytes(d, d.init, ty)
                 self.globals[d.name] = (ty, label, d.mut)
                 self.prog.globals[label] = (ty.size, ty.align, init)
         # 4. function signatures
@@ -276,6 +262,40 @@ class Front:
             raise CheckError("no entry function: every program needs @! () s64")
 
     # -- constant folding ----------------------------------------------------
+    def const_bytes(self, d, e, ty):
+        """The bytes of a compile-time value of type ty: scalars, and arrays
+        and structs built from them."""
+        if ty.kind == "float":
+            fv = self.const_float(e)
+            if fv is None:
+                self.err(d, "a float global needs a literal value")
+            return struct.pack("<d" if ty.bits == 64 else "<f", fv)
+        if ty.kind in ("int", "bool", "ptr"):
+            v = self.const_eval(e)
+            if v is None:
+                self.err(d, "global initialiser must be a constant")
+            return (int(v) & ((1 << (8 * ty.size)) - 1)).to_bytes(
+                ty.size, "little")
+        if ty.kind == "arr" and isinstance(e, A.ArrLit):
+            if len(e.items) > ty.n:
+                self.err(d, "%d values for an array of %d"
+                         % (len(e.items), ty.n))
+            out = b"".join(self.const_bytes(d, x, ty.elem) for x in e.items)
+            return out + b"\0" * (ty.size - len(out))
+        if ty.kind == "struct" and isinstance(e, A.StructLit):
+            if e.tyname != ty.name:
+                self.err(d, "expected %s, got %%%s" % (ty, e.tyname))
+            buf = bytearray(ty.size)
+            offs = dict((n, (t, o)) for (n, t, o) in ty.fields)
+            for (fname, fe) in e.inits:
+                if fname not in offs:
+                    self.err(d, "%s has no field %r" % (ty, fname))
+                t, o = offs[fname]
+                buf[o:o + t.size] = self.const_bytes(d, fe, t)
+            return bytes(buf)
+        self.err(d, "a global initialiser must be a constant scalar, array "
+                    "or struct")
+
     def const_float(self, e):
         """A float literal, optionally negated."""
         if isinstance(e, A.FltLit):

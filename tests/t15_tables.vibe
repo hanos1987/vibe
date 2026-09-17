@@ -1,0 +1,30 @@
+; constant tables: array and struct global initialisers
+; out: 31
+; out: 365
+; out: 7 -2
+; out: 2.50
+; out: 0
+<<"std.vibe"
+
+%P { x s64, y s32, w f64 }
+$$ K s64 = 31
+$ days [12]u8 = [K, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+$ pts [3]%P = [%P{ x: 7, y: -2, w: 2.5 }, %P{ x: 1, y: 1, w: 0.0 }]
+$~ origin %P = %P{ x: 0, y: 0, w: 1.0 }
+
+@! () s64 {
+  pnl(s64(days[0]))
+  $~ t s64 = 0
+  $~ i s64 = 0
+  * (i < 12) {
+    t = (t + s64(days[i]))
+    i = (i + 1)
+  }
+  pnl(t)
+  pn(pts[0].x)
+  pc(` )
+  pnl(s64(pts[0].y))
+  pfl(pts[0].w, 2)
+  pnl(pts[2].x)
+  ^ 0
+}
