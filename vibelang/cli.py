@@ -6,6 +6,7 @@
   vibec prog.vibe -O0          no optimisation, no register allocation
   vibec prog.vibe --backend c  build through gcc/clang -O3 (fastest code)
   vibec prog.vibe --emit-c     print the generated C
+  vibec prog.vibe --json       report errors as JSON on stdout
   vibec --version              print the version
 
 No assembler, linker or C library is involved: vibec writes the ELF bytes.
@@ -53,6 +54,7 @@ def main(argv=None):
     noopt = False
     backend = "native"
     explicit_backend = False
+    as_json = False
     i = 1
     while i < len(argv):
         x = argv[i]
@@ -82,6 +84,8 @@ def main(argv=None):
             if backend not in ("native", "c"):
                 sys.stderr.write("vibec: --backend is native or c\n")
                 return 2
+        elif x == "--json":
+            as_json = True
         elif x == "--emit-c":
             mode = "c"
         elif x == "-O0":
@@ -103,7 +107,20 @@ def main(argv=None):
     try:
         prog = build(src, include_dirs=[stdlib_dir()])
     except (LexError, ParseError, CheckError) as e:
-        sys.stderr.write("%s\n" % e)
+        if as_json:
+            import json
+            import re
+            out = []
+            for line in str(e).split("\n"):
+                m = re.match(r"(.*?):(\d+):(\d+): (.*)", line)
+                if m:
+                    out.append({"file": m.group(1), "line": int(m.group(2)),
+                                "col": int(m.group(3)), "message": m.group(4)})
+                elif line:
+                    out.append({"message": line})
+            sys.stdout.write(json.dumps(out) + "\n")
+        else:
+            sys.stderr.write("%s\n" % e)
         return 1
 
     if mode == "ir":

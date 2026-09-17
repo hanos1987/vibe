@@ -499,17 +499,27 @@ class Front:
     #                          function lowering
     # ====================================================================
     def lower_all(self):
+        errors = []
         for fname, d in self.decls:
             self.file = fname
             if isinstance(d, A.FnDecl):
-                self.lower_fn(d)
+                # one bad function does not hide the errors in the next
+                try:
+                    self.lower_fn(d)
+                except CheckError as ex:
+                    errors.append(str(ex))
         # generic functions, one copy per set of type arguments actually used
         while self.pending:
             fname, d, bind, key = self.pending.pop(0)
             self.file = fname
             self.tbind = bind
-            self.lower_fn(d, key)
+            try:
+                self.lower_fn(d, key)
+            except CheckError as ex:
+                errors.append("%s (in %s)" % (ex, key))
             self.tbind = {}
+        if errors:
+            raise CheckError("\n".join(errors))
         return self.prog
 
     def addr_taken(self, body):
