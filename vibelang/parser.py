@@ -19,7 +19,22 @@ BIN_OPS = {
 }
 CMP_OPS = {"==", "!=", "<", ">", "<=", ">="}
 # Operators that may repeat in an unparenthesised chain.
-CHAINABLE = {"+", "-", "*", "/", "%", "&", "|", "^", "&&", "||"}
+COMPOUND = {"+=", "-=", "*=", "/=", "%=", "&=", "|=", "^=", "<<=", ">>="}
+PRIM_NAMES = {"s8", "s16", "s32", "s64", "u8", "u16", "u32", "u64",
+              "f32", "f64", "b", "v"}
+
+
+def has_call(e):
+    if isinstance(e, (A.Call, A.CallP, A.Syscall)):
+        return True
+    for f in getattr(e, "__slots__", ()):
+        x = getattr(e, f)
+        if isinstance(x, A.Node) and has_call(x):
+            return True
+    return False
+
+
+CHAINABLE = {"+", "*", "&", "|", "^", "&&", "||"}
 
 PRIM_NAMES = {"v", "b", "s8", "s16", "s32", "s64",
               "u8", "u16", "u32", "u64", "f32", "f64"}
@@ -223,6 +238,20 @@ class Parser:
             return A.TName(t.val, line=t.line, col=t.col)
         self.err("expected a type")
 
+    def star_is_cast(self):
+        """At a statement-leading `*`: is this `*T(expr)...`, a pointer cast,
+        rather than a loop? True when a primitive or sigil type follows and
+        is itself followed by `(`."""
+        k = 1
+        while self.peek(k).is_p("*"):
+            k += 1
+        a, b = self.peek(k), self.peek(k + 1)
+        if a.is_p("%"):
+            a, b = self.peek(k + 1), self.peek(k + 2)
+            return a.kind == "ID" and b.is_p("(")
+        return (a.kind == "ID" and a.val in PRIM_NAMES and a.val != "b"
+                and b.is_p("("))
+
     def at_type_start(self):
         t = self.t
         if t.kind == "ID":
@@ -272,6 +301,12 @@ class Parser:
             cond = self.parse_expr()
             then = self.parse_block()
             els = None
+            # the else may sit on the line after the closing brace
+            k = 0
+            while self.peek(k).kind == "NL":
+                k += 1
+            if k and self.peek(k).is_p(":"):
+                self.skip_nl()
             if self.at(":"):
                 self.next()
                 if self.at("?"):
@@ -281,8 +316,19 @@ class Parser:
             self.end_stmt()
             return A.If(cond, then, els, line=t.line, col=t.col)
 
-        if self.at("*"):
+        if self.at("*") and self.star_is_cast():
+            pass        # `*T(p)' = x`: an expression statement, below
+        elif self.at("*"):
             self.next()
+            nx = self.peek(1)
+            if self.t.kind == "ID" and nx.kind in ("ID", "INT"):
+                # counted loop: * i lo hi { }   (hi is exclusive)
+                name = self.next().val
+                lo = self.parse_postfix()
+                hi = self.parse_unary()
+                body = self.parse_block()
+                self.end_stmt()
+                return A.For(name, lo, hi, body, line=t.line, col=t.col)
             cond = self.parse_expr()
             body = self.parse_block()
             self.end_stmt()
@@ -346,6 +392,15 @@ class Parser:
 
         # expression statement or assignment
         e = self.parse_expr()
+        if self.t.kind == "P" and self.t.val in COMPOUND:
+            op = self.next().val[:-1]
+            val = self.parse_expr()
+            self.end_stmt()
+            if has_call(e):
+                self.err("the target of %s= is evaluated twice, so it may "
+                         "not contain a call" % op, t)
+            val = A.Bin(op, e, val, line=t.line, col=t.col)
+            return A.Assign(e, val, line=t.line, col=t.col)
         if self.at("="):
             self.next()
             val = self.parse_expr()

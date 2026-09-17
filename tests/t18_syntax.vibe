@@ -1,0 +1,56 @@
+; bare expressions, compound assignment, counted loop, else on a new line,
+; `*<` lexing, statement-leading pointer cast
+; out: 100
+; out: 45 20
+; out: 12
+; out: 1
+; out: 99
+; out: 6
+<<"std.vibe"
+
+@ f (a s64, b s64) s64 {
+  ^ a + b
+}
+
+@! () s64 {
+  $~ t = 0
+  * i 0 10 {
+    t += f(i * 2, 1)
+  }
+  ? t == 101 {
+    pnl(0)
+  }
+  : {
+    pnl(t)
+  }
+  $~ s = 0
+  $~ c = 0
+  * k 0 10 {
+    s += k
+    ? (k % 2) == 1 {
+      *>
+    }
+    c += k
+  }
+  pn(s)
+  pc(` )
+  pnl(c)
+  $~ x u8 = 3
+  x <<= 2
+  pnl(s64(x))
+  $ a = 2
+  $ b = 3
+  $ d = 7
+  pnl(s64(((a*b)<d)))
+  $~ cell s64 = 0
+  $ q *u8 = *u8(&cell)
+  *s64(q)' = 99
+  pnl(cell)
+  $~ n = 0
+  $ lim u8 = 3
+  * j 0 lim {
+    n += s64(j) + 1
+  }
+  pnl(n)
+  ^ 0
+}

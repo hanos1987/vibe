@@ -1,0 +1,4 @@
+; err: does not chain
+@! () s64 {
+  ^ (10 - 3 - 2)
+}

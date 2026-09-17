@@ -616,6 +616,53 @@ class Front:
             f.emit("label", lx)
             return
 
+        if isinstance(s, A.For):
+            saved = self.scope
+            self.scope = Scope(saved)
+            pos = dict(line=s.line, col=s.col)
+            i = A.Ident(s.name, **pos)
+            if self.is_lit(s.lo):
+                hv, ht = self.rval(s.hi, None)
+                if ht.kind != "int":
+                    self.err(s, "loop bound must be an integer, got %s" % ht)
+                lv, lt = self.rval(s.lo, ht)
+            else:
+                lv, lt = self.rval(s.lo, None)
+                if lt.kind != "int":
+                    self.err(s, "loop start must be an integer, got %s" % lt)
+                hv, ht = self.rval(s.hi, lt)
+            if lt != ht:
+                self.err(s, "loop bounds differ in type: %s and %s" % (lt, ht))
+            iv = f.vreg()
+            f.emit("mov", iv, lv)
+            if s.name in self.taken:
+                self.err(s, "the address of a loop counter cannot be taken")
+            self.scope.put(s.name, ("vreg", iv, lt, False))
+            lc = f.label("cond")
+            lb = f.label("body")
+            ls = f.label("step")
+            lx = f.label("endloop")
+            f.emit("jmp", lc)
+            f.emit("label", lc)
+            c = f.vreg()
+            f.emit("cmp", c, "<", iv, hv, lt.signed)
+            f.emit("br", c, lb, lx)
+            f.emit("label", lb)
+            self.loops.append((ls, lx))
+            self.block(s.body)
+            self.loops.pop()
+            f.emit("jmp", ls)
+            f.emit("label", ls)
+            one = f.vreg()
+            f.emit("const", one, 1)
+            nv = f.vreg()
+            f.emit("bin", nv, "+", iv, one, lt)
+            f.emit("mov", iv, nv)
+            f.emit("jmp", lc)
+            f.emit("label", lx)
+            self.scope = saved
+            return
+
         if isinstance(s, A.Break):
             if not self.loops:
                 self.err(s, "*< outside a loop")

@@ -28,6 +28,7 @@ PUNCT = [
     "@!", "@",
     "%|", "%",
     "??",
+    "<<=", ">>=", "+=", "-=", "*=", "/=", "%=", "&=", "|=", "^=",
     "*<", "*>", "*",
     "<<", ">>", "<=", ">=", "<", ">",
     "==", "!=", "!",
@@ -128,6 +129,10 @@ class Lexer:
                 continue
 
             for p in PUNCT:
+                if p in ("*<", "*>") and self.toks \
+                        and not (self.toks[-1].kind == "NL"
+                                 or self.toks[-1].is_p("{")):
+                    continue        # `(a*<b)` is a multiply and a compare
                 if src.startswith(p, self.i):
                     self._adv(len(p))
                     self.push("P", p, line, col)
