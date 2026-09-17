@@ -22,6 +22,9 @@ CALLEE_SAVED = set(GP_CALLEE)
 # xmm0-xmm2 are scratch in the code generator.
 XMM_POOL = list(range(3, 14))
 
+SMALL_COPY = 64      # bytes; at or below this a copy is inline moves
+SYS_ARG_POOL = [RDI, RSI, None, None, R8, R9]   # rdx, r10 are never allocated
+
 CALL_LIKE = {"call", "syscall", "calli", "memcpy", "memzero"}
 
 INT_ARG_REGS = [RDI, RSI, RDX, RCX, R8, R9]
@@ -189,14 +192,38 @@ def allocate(f):
     liveness(f, blocks)
     start, end = intervals(f, blocks)
 
-    call_idx = [i for i, x in enumerate(f.ins) if x.op in CALL_LIKE]
+    # what each call-like instruction destroys: a real call takes every
+    # caller-saved register, the others only the registers they are
+    # encoded with
+    ALL = "all"
+    call_idx = []
+    for i, x in enumerate(f.ins):
+        if x.op in ("call", "calli"):
+            call_idx.append((i, ALL))
+        elif x.op == "syscall":
+            call_idx.append((i, set(SYS_ARG_POOL[:len(x.c)])))
+        elif x.op == "memcpy" and x.c > SMALL_COPY:
+            call_idx.append((i, {RDI, RSI}))
+        elif x.op == "memzero" and x.b > SMALL_COPY:
+            call_idx.append((i, {RDI}))
 
     def crosses(v):
+        """None, or the set of registers (or ALL) destroyed while v lives."""
         s, e = start[v], end[v]
-        for i in call_idx:
+        out = None
+        for i, c in call_idx:
             if s < i < e:
-                return True
-        return False
+                if c is ALL:
+                    return ALL
+                out = c if out is None else (out | c)
+        return out
+
+    def ok(r, x):
+        if x is None:
+            return True
+        if x is ALL:
+            return r in CALLEE_SAVED
+        return r not in x
 
     same, phys = build_hints(f)
     order = sorted(start.keys(), key=lambda v: (start[v], end[v]))
@@ -221,7 +248,7 @@ def allocate(f):
         isf = v in f.float_vregs
         x = crosses(v)
         if isf:
-            if x:
+            if x is ALL:
                 loc[v] = ("m",)
                 continue
             pool = [r for r in free_xmm]
@@ -233,7 +260,7 @@ def allocate(f):
             loc[v] = ("x", r)
             active.append((end[v], v, r, True))
             continue
-        cands = [r for r in free_gp if (not x) or r in CALLEE_SAVED]
+        cands = [r for r in free_gp if ok(r, x)]
         if not cands:
             # nothing free: evict the active value whose live range ends
             # furthest away, which is the one that benefits least from a
@@ -242,7 +269,7 @@ def allocate(f):
             for k2, (e2, v2, r2, f2) in enumerate(active):
                 if f2:
                     continue
-                if x and r2 not in CALLEE_SAVED:
+                if not ok(r2, x):
                     continue
                 if best is None or e2 > active[best][0]:
                     best = k2
@@ -265,8 +292,7 @@ def allocate(f):
             cand = loc[s_src][1]
             if cand in cands:
                 hint = cand
-            elif end.get(s_src, -1) <= start[v] and (
-                    (not x) or cand in CALLEE_SAVED):
+            elif end.get(s_src, -1) <= start[v] and ok(cand, x):
                 # the source dies exactly here and the generated sequence
                 # reads it before writing the destination, so the register
                 # can be reused directly
@@ -283,7 +309,7 @@ def allocate(f):
         if hint is not None:
             r = hint
         else:
-            if not x:
+            if x is None:
                 pref = [r2 for r2 in cands if r2 not in CALLEE_SAVED] or cands
             else:
                 pref = cands

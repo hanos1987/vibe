@@ -12,7 +12,7 @@ import struct
 
 from . import elf
 from .opt import optimise, prune, single_def_consts, defs_of, uses_of
-from .regalloc import allocate, all_memory
+from .regalloc import allocate, all_memory, SMALL_COPY
 from .x64 import (Asm, Mem, rip, RAX, RCX, RDX, RBX, RSP, RBP, RSI, RDI,
                   R8, R9, R10, R11, R12, R13, R14, R15,
                   SIGNED_CC, UNSIGNED_CC, INVERT_CC)
@@ -536,6 +536,17 @@ class CodeGen:
             dst, src, n = ins.a, ins.b, ins.c
             if n == 0:
                 return
+            if n <= SMALL_COPY:
+                # unrolled moves through r11; nothing else is disturbed
+                dp = self.rd(dst, R10)
+                sp = self.rd(src, RAX)
+                off = 0
+                for size in (8, 4, 2, 1):
+                    while n - off >= size:
+                        a.movzx(R11, Mem(sp, off), size)
+                        a.store_sized(Mem(dp, off), R11, size)
+                        off += size
+                return
             dk, dv = self.src_of(dst)
             sk, sv = self.src_of(src)
             self.parallel_move([(RDI, dk, dv), (RSI, sk, sv)])
@@ -547,6 +558,15 @@ class CodeGen:
         if op == "memzero":
             addr, n = ins.a, ins.b
             if n == 0:
+                return
+            if n <= SMALL_COPY:
+                dp = self.rd(addr, R10)
+                a.mov_ri(R11, 0)
+                off = 0
+                for size in (8, 4, 2, 1):
+                    while n - off >= size:
+                        a.store_sized(Mem(dp, off), R11, size)
+                        off += size
                 return
             ak, av = self.src_of(addr)
             self.parallel_move([(RDI, ak, av)])
