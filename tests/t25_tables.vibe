@@ -1,0 +1,32 @@
+; global tables of strings and functions
+; out: tue 3
+; out: 12
+; out: err: not found
+<<"std.vibe"
+
+%Cmd { name %Str, run @(s64) s64 }
+
+@ dbl (x s64) s64 {
+  ^ x * 2
+}
+
+@ neg (x s64) s64 {
+  ^ -x
+}
+
+$ days [3]%Str = ["mon", "tue", "wed"]
+$ cmds [2]%Cmd = [%Cmd{ name: "dbl", run: @dbl }, %Cmd{ name: "neg", run: @neg }]
+$ msg %Str = "err: not found\n"
+
+@! () s64 {
+  ps(days[1])
+  pc(` )
+  pnl(days[1].n)
+  * i 0 2 {
+    ? cmds[i].name == "dbl" {
+      pnl(cmds[i].run(6))
+    }
+  }
+  ps(msg)
+  ^ 0
+}

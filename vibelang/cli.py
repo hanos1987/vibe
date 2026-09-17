@@ -6,6 +6,7 @@
   vibec prog.vibe -O0          no optimisation, no register allocation
   vibec prog.vibe --backend c  build through gcc/clang -O3 (fastest code)
   vibec prog.vibe --emit-c     print the generated C
+  vibec prog.vibe --check      trap, with file:line, on a bad index or divide by zero
   vibec prog.vibe --json       report errors as JSON on stdout
   vibec --version              print the version
 
@@ -55,6 +56,7 @@ def main(argv=None):
     backend = "native"
     explicit_backend = False
     as_json = False
+    check = False
     i = 1
     while i < len(argv):
         x = argv[i]
@@ -84,6 +86,8 @@ def main(argv=None):
             if backend not in ("native", "c"):
                 sys.stderr.write("vibec: --backend is native or c\n")
                 return 2
+        elif x == "--check":
+            check = True
         elif x == "--json":
             as_json = True
         elif x == "--emit-c":
@@ -105,7 +109,7 @@ def main(argv=None):
         return 2
 
     try:
-        prog = build(src, include_dirs=[stdlib_dir()])
+        prog = build(src, include_dirs=[stdlib_dir()], check=check)
     except (LexError, ParseError, CheckError) as e:
         if as_json:
             import json

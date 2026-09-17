@@ -59,6 +59,9 @@ class Front:
         self.ttypes = {}        # generic struct / sum templates
         self.tfns = {}          # generic function templates
         self.pending = []       # generic function instances to lower
+        self.startup = []       # addresses to store into globals at entry
+        self.relocs = []
+        self.check = False      # --check: bounds and divide-by-zero traps
         self.cur_ret = VOID
         self.cur_sret = None
 
@@ -394,7 +397,10 @@ class Front:
                 label = "$g_" + d.name
                 init = None
                 if d.init is not None:
+                    self.relocs = []
                     init = self.const_bytes(d, d.init, ty)
+                    self.startup += [(label, at, kind, what, d)
+                                     for (at, kind, what) in self.relocs]
                 self.globals[d.name] = (ty, label, d.mut)
                 self.prog.globals[label] = (ty.size, ty.align, init)
         # 4. function signatures
@@ -426,9 +432,16 @@ class Front:
             raise CheckError("no entry function: every program needs @! () s64")
 
     # -- constant folding ----------------------------------------------------
-    def const_bytes(self, d, e, ty):
+    def const_bytes(self, d, e, ty, at=0):
         """The bytes of a compile-time value of type ty: scalars, and arrays
         and structs built from them."""
+        if ty == self.str_t and isinstance(e, A.StrLit):
+            # the pointer is filled in at startup; see lower_fn
+            self.relocs.append((at, "ro", self.prog.add_ro(e.v + b"\0")))
+            return bytes(8) + len(e.v).to_bytes(8, "little")
+        if ty.kind == "fn" and isinstance(e, A.FnRef):
+            self.relocs.append((at, "fn", e))
+            return bytes(8)
         if ty.kind == "float":
             fv = self.const_float(e)
             if fv is None:
@@ -446,7 +459,8 @@ class Front:
             if len(e.items) > ty.n:
                 self.err(d, "%d values for an array of %d"
                          % (len(e.items), ty.n))
-            out = b"".join(self.const_bytes(d, x, ty.elem) for x in e.items)
+            out = b"".join(self.const_bytes(d, x, ty.elem, at + k * ty.elem.size)
+                           for k, x in enumerate(e.items))
             return out + b"\0" * (ty.size - len(out))
         if ty.kind == "struct" and isinstance(e, A.StructLit):
             if e.tyname != ty.name:
@@ -457,7 +471,7 @@ class Front:
                 if fname not in offs:
                     self.err(d, "%s has no field %r" % (ty, fname))
                 t, o = offs[fname]
-                buf[o:o + t.size] = self.const_bytes(d, fe, t)
+                buf[o:o + t.size] = self.const_bytes(d, fe, t, at + o)
             return bytes(buf)
         self.err(d, "a global initialiser must be a constant scalar, array "
                     "or struct")
@@ -606,6 +620,22 @@ class Front:
                     self.scope.put(pname, ("vreg", pv, pty, True))
 
         self.taken = taken
+        if d.entry:
+            for (label, at, kind, what, gd) in self.startup:
+                g = f.vreg()
+                f.emit("leag", g, label)
+                o = f.vreg()
+                f.emit("const", o, at)
+                a2 = f.vreg()
+                f.emit("bin", a2, "+", g, o, U64)
+                v = f.vreg()
+                if kind == "ro":
+                    f.emit("leas", v, what)
+                else:
+                    if what.name not in self.fns or what.name in self.prog.externs:
+                        self.err(gd, "unknown function %r" % what.name)
+                    f.emit("leaf", v, what.name)
+                f.emit("store", a2, v, 8, False)
         for st in d.body:
             self.stmt(st)
 
@@ -1052,6 +1082,12 @@ class Front:
             iv, ity = self.rval(e.idx, S64)
             if ity.kind != "int":
                 self.err(e, "index must be an integer, got %s" % ity)
+            if self.check and bty.kind == "arr":
+                lim = f.vreg()
+                f.emit("const", lim, bty.n)
+                okv = f.vreg()
+                f.emit("cmp", okv, "<", iv, lim, False)
+                self.guard(e, okv, "index out of range for %s" % bty)
             sz = f.vreg()
             f.emit("const", sz, elem.size)
             off = f.vreg()
@@ -1060,6 +1096,29 @@ class Front:
             f.emit("bin", r, "+", base, off, U64)
             return r, elem
         self.err(e, "not assignable")
+
+    def guard(self, node, okv, what):
+        """--check: unless okv holds, report file:line and exit 134."""
+        f = self.f
+        good = f.label("ok")
+        bad = f.label("bad")
+        f.emit("br", okv, good, bad)
+        f.emit("label", bad)
+        msg = ("%s:%d:%d: %s\n" % (self.file, node.line, node.col,
+                                   what)).encode()
+        p = f.vreg()
+        f.emit("leas", p, self.prog.add_ro(msg))
+        fd = f.vreg()
+        f.emit("const", fd, 2)
+        n = f.vreg()
+        f.emit("const", n, len(msg))
+        f.emit("syscall", f.vreg(), 1, [fd, p, n])
+        code = f.vreg()
+        f.emit("const", code, 134)
+        f.emit("syscall", f.vreg(), 60, [code])
+        f.emit("trap")
+        f.emit("label", good)
+        f.calls = True
 
     def field_base(self, e):
         """Address of the struct a field access applies to (auto-derefs *%S)."""
@@ -1563,6 +1622,12 @@ class Front:
                      % (at, op, bt))
         if op not in INT_BIN:
             self.err(e, "operator %r is not defined on %s" % (op, at))
+        if self.check and op in ("/", "%"):
+            z = f.vreg()
+            f.emit("const", z, 0)
+            nz = f.vreg()
+            f.emit("cmp", nz, "!=", b, z, False)
+            self.guard(e, nz, "division by zero")
         d = f.vreg()
         f.emit("bin", d, op, a, b, at)
         return d, at
@@ -1681,8 +1746,9 @@ class Front:
         return d, sig.ret
 
 
-def build(path, include_dirs=()):
+def build(path, include_dirs=(), check=False):
     fe = Front(include_dirs)
+    fe.check = check
     fe.load(path)
     fe.collect()
     return fe.lower_all()
