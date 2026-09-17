@@ -30,23 +30,13 @@ WSL, on macOS run them in a container or VM.
 
 | Platform | Command |
 |---|---|
-| Debian / Ubuntu | `sudo apt install vibe` (after adding the repo, below) |
 | Any Linux, macOS | `curl -fsSL https://raw.githubusercontent.com/hanos1987/vibe/master/install.sh \| sh` |
-| Any, with pip | `pipx install vibe-lang` |
+| Debian / Ubuntu | download `vibe_0.2.0_all.deb` from the [release](https://github.com/hanos1987/vibe/releases/latest), then `sudo apt install ./vibe_0.2.0_all.deb` |
+| Any, with pip | `pipx install https://github.com/hanos1987/vibe/releases/download/v0.2.0/vibe_lang-0.2.0-py3-none-any.whl` |
 | Windows | `irm https://raw.githubusercontent.com/hanos1987/vibe/master/install.ps1 \| iex` |
 | From source | `git clone https://github.com/hanos1987/vibe && cd vibe && ./install.sh` |
 
-APT repository:
-
-```sh
-curl -fsSL https://benjiapps.com/vibe/apt/vibe.gpg \
-  | sudo tee /usr/share/keyrings/vibe.gpg >/dev/null
-echo "deb [signed-by=/usr/share/keyrings/vibe.gpg] https://benjiapps.com/vibe/apt stable main" \
-  | sudo tee /etc/apt/sources.list.d/vibe.list
-sudo apt update && sudo apt install vibe
-```
-
-Or download the `.deb` directly and `sudo apt install ./vibe_0.2.0_all.deb`.
+`--backend=c` additionally needs gcc or clang on the PATH.
 
 Build every release artifact yourself with `packaging/release.sh`, and the
 APT repository with `packaging/mkrepo.sh --sign <key>`.
