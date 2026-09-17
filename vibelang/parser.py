@@ -45,10 +45,11 @@ class ParseError(Exception):
 
 
 class Parser:
-    def __init__(self, src, filename="<vibe>"):
+    def __init__(self, src, filename="<vibe>", generics=()):
         self.file = filename
         self.toks = lex(src, filename)
         self.i = 0
+        self.generics = set(generics)   # names declared as @ name<...>
         self.split = []         # `>>` tokens narrowed to `>` by parse_targs
 
     # -- token helpers -------------------------------------------------------
@@ -333,6 +334,24 @@ class Parser:
         """At a statement-leading `*`: is this `*T(expr)...`, a pointer cast,
         rather than a loop? True when a primitive or sigil type follows and
         is itself followed by `(`."""
+        # a store has an assignment on its line, outside any brackets,
+        # before any block opens; `* s64(x) < 3 {` is a loop
+        depth = 0
+        j = 1
+        while True:
+            tk = self.peek(j)
+            if tk.kind in ("NL", "EOF"):
+                return False
+            if tk.kind == "P":
+                if tk.val in ("(", "["):
+                    depth += 1
+                elif tk.val in (")", "]"):
+                    depth -= 1
+                elif depth == 0 and tk.val == "{":
+                    return False
+                elif depth == 0 and (tk.val == "=" or tk.val in COMPOUND):
+                    break
+            j += 1
         k = 1
         while self.peek(k).is_p("*"):
             k += 1
@@ -420,13 +439,19 @@ class Parser:
         elif self.at("*"):
             self.next()
             nx = self.peek(1)
-            if self.t.kind == "ID" and nx.kind in ("ID", "INT"):
+            neg = (nx.is_p("-") and self.peek(2).kind == "INT"
+                   and (self.peek(3).kind in ("ID", "INT")
+                        or self.peek(3).is_p("(", "-")))
+            if self.t.kind == "ID" and (nx.kind in ("ID", "INT") or neg):
                 # counted loop: * i lo hi { }   (hi is exclusive)
                 name = self.next().val
                 # the start is a bare name or number, never `a(...)`: the
                 # bound may begin with a parenthesis
+                if neg:
+                    self.next()
                 lt = self.next()
-                lo = (A.IntLit(lt.val, line=lt.line, col=lt.col)
+                lo = (A.IntLit(-lt.val if neg else lt.val,
+                               line=lt.line, col=lt.col)
                       if lt.kind == "INT"
                       else A.Ident(lt.val, line=lt.line, col=lt.col))
                 hi = self.parse_unary()
@@ -575,6 +600,7 @@ class Parser:
                 self.expect("]")
                 e = A.Index(e, idx, line=t.line, col=t.col)
             elif self.at("<") and isinstance(e, A.Ident) \
+                    and e.name in self.generics \
                     and self.try_call_targs() is not None:
                 targs = self.last_targs
                 self.next()
@@ -687,5 +713,5 @@ class Parser:
         self.err("expected an expression")
 
 
-def parse(src, filename="<vibe>"):
-    return Parser(src, filename).parse_unit()
+def parse(src, filename="<vibe>", generics=()):
+    return Parser(src, filename, generics).parse_unit()

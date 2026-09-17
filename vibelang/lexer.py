@@ -26,9 +26,9 @@ class Tok:
 PUNCT = [
     "$$", "$~", "$",
     "@!", "@<", "@",
+    "<<=", ">>=", "+=", "-=", "*=", "/=", "%=", "&=", "|=", "^=",
     "%|", "%",
     "??",
-    "<<=", ">>=", "+=", "-=", "*=", "/=", "%=", "&=", "|=", "^=",
     "*<", "*>", "*",
     "<<", ">>", "<=", ">=", "<", ">",
     "==", "!=", "!",
@@ -152,6 +152,8 @@ class Lexer:
             k = j + 2
             while k < self.n and (src[k] in "0123456789abcdefABCDEF_"):
                 k += 1
+            if not src[j + 2:k].replace("_", ""):
+                self.err("0x needs hexadecimal digits")
             v = int(src[j + 2:k].replace("_", ""), 16)
             self._adv(k - j)
             self.push("INT", v, line, col)
@@ -160,6 +162,8 @@ class Lexer:
             k = j + 2
             while k < self.n and src[k] in "01_":
                 k += 1
+            if not src[j + 2:k].replace("_", ""):
+                self.err("0b needs binary digits")
             v = int(src[j + 2:k].replace("_", ""), 2)
             self._adv(k - j)
             self.push("INT", v, line, col)

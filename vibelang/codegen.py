@@ -230,7 +230,7 @@ class CodeGen:
         a.mov_mr(rip("$g___sp"), RSP)
         a.call("@!")
         a.mov_rr(RDI, RAX)
-        a.mov_ri(RAX, 60)
+        a.mov_ri(RAX, 231)      # exit_group: end every thread
         a.syscall()
         a.ud2()
 

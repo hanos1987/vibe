@@ -70,10 +70,10 @@ ENTRY = r"""
 __asm__(".globl _start\n_start:\n"
         "  mov %rsp, SPSYM(%rip)\n"
         "  call vibe_entry\n"
-        "  mov %eax, %edi\n  mov $60, %eax\n  syscall\n  ud2\n");
+        "  mov %eax, %edi\n  mov $231, %eax\n  syscall\n  ud2\n");
 """
 
-CFLAGS = ["-O3", "-static", "-nostdlib", "-ffreestanding",
+CFLAGS = ["-O3", "-fno-math-errno", "-mpopcnt", "-static", "-nostdlib", "-ffreestanding",
           "-fno-stack-protector", "-fno-strict-aliasing", "-fwrapv",
           "-fno-tree-loop-distribute-patterns", "-fno-pie", "-no-pie",
           "-fno-asynchronous-unwind-tables", "-w", "-s",
@@ -188,7 +188,7 @@ class CGen:
         if flts:
             o.append("  double %s;" % ", ".join("v%d = 0" % v for v in flts))
         for s in f.slots:
-            o.append("  u8 s%d[%d] __attribute__((aligned(%d)));"
+            o.append("  u8 sl%d[%d] __attribute__((aligned(%d)));"
                      % (s.idx, max(s.size, 1), max(s.align, 1)))
         for ins in f.ins:
             self.ins(ins)
@@ -221,7 +221,7 @@ class CGen:
         elif op == "mov":
             o.append("  v%d = v%d;" % (i.a, i.b))
         elif op == "lea":
-            o.append("  v%d = (s64)s%d;" % (i.a, i.b.idx))
+            o.append("  v%d = (s64)sl%d;" % (i.a, i.b.idx))
         elif op == "leaf":
             o.append("  v%d = (s64)&%s;" % (i.a, fn_name(i.b)))
         elif op in ("leag", "leas"):

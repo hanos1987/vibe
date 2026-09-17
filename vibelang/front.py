@@ -5,6 +5,7 @@ their address; scalars live in virtual registers.
 """
 
 import os
+import re
 import struct
 
 from . import ast_ as A
@@ -50,6 +51,7 @@ class Front:
         self.constants = {}      # name -> (Type, int)  -- $$ comptime values
         self.include_dirs = list(include_dirs)
         self.seen_files = set()
+        self.gcache = {}
         self.namespaces = set()
         self.decls = []
         self.f = None            # current ir.Func
@@ -59,6 +61,7 @@ class Front:
         self.ttypes = {}        # generic struct / sum templates
         self.tfns = {}          # generic function templates
         self.pending = []       # generic function instances to lower
+        self.ninst = 0
         self.startup = []       # addresses to store into globals at entry
         self.relocs = []
         self.check = False      # --check: bounds and divide-by-zero traps
@@ -82,6 +85,29 @@ class Front:
             (getattr(node, "_file", None) or self.file), node.line, node.col, msg))
 
     # -- loading -------------------------------------------------------------
+    def scan_generics(self, path, seen):
+        """Names declared `@ name<...>` in a file or anything it includes.
+        The parser needs them up front: only after such a name does `<`
+        open a type-argument list rather than a comparison."""
+        path = os.path.abspath(path)
+        if path in seen or not os.path.exists(path):
+            return set()
+        seen.add(path)
+        if path in self.gcache:
+            return self.gcache[path]
+        with open(path, "r") as fh:
+            src = fh.read()
+        out = set(re.findall(r"(?m)^[ \t]*@[ \t]*(\w+)[ \t]*<", src))
+        here = os.path.dirname(path)
+        for inc in re.findall(r'(?m)^[ \t]*<<[ \t]*"([^"]+)"', src):
+            for c in [os.path.join(here, inc)] + [
+                    os.path.join(x, inc) for x in self.include_dirs]:
+                if os.path.exists(c):
+                    out |= self.scan_generics(c, seen)
+                    break
+        self.gcache[path] = out
+        return out
+
     def load(self, path, ns=None, group=None):
         path = os.path.abspath(path)
         if (path, ns) in self.seen_files:
@@ -89,7 +115,8 @@ class Front:
         self.seen_files.add((path, ns))
         with open(path, "r") as fh:
             src = fh.read()
-        decls = parse(src, os.path.basename(path))
+        decls = parse(src, os.path.basename(path),
+                      self.scan_generics(path, set()))
         here = os.path.dirname(path)
         for d in decls:
             d._file = os.path.basename(path)
@@ -254,6 +281,13 @@ class Front:
                 self.unify(e, d.ret, want, d.tparams, probe)
                 for k2, v2 in probe.items():
                     bind.setdefault(k2, v2)
+            # a literal decides a parameter nothing else did: s64 or f64
+            for k, (a, (_, ptast)) in enumerate(zip(e.args, d.params)):
+                if k not in pre and isinstance(ptast, A.TName) \
+                        and ptast.name in d.tparams \
+                        and ptast.name not in bind:
+                    lit = a.a if isinstance(a, A.Un) else a
+                    bind[ptast.name] = F64 if isinstance(lit, A.FltLit) else S64
             missing = [p for p in d.tparams if p not in bind]
             if missing:
                 self.err(e, "cannot infer %s for %s; write %s<type>(...)"
@@ -266,6 +300,11 @@ class Front:
             rt = self.resolve(d.ret)
             self.tbind, self.file = saved
             self.fns[key] = FnT(ps, rt)
+            self.ninst += 1
+            if self.ninst > 2000 or len(key) > 400:
+                self.err(e, "generic %s keeps creating new instances (%s); "
+                            "recursion must reuse its own type arguments"
+                         % (e.name, key[:80]))
             self.pending.append((fname, d, bind, key))
         return self.lower_call(e, name=key, pre=pre)
 
@@ -548,7 +587,7 @@ class Front:
             try:
                 self.lower_fn(d, key)
             except CheckError as ex:
-                errors.append("%s (in %s)" % (ex, key))
+                errors.append("%s (in %s)" % (ex, key if len(key) < 60 else key[:57] + "..."))
             self.tbind = {}
         if errors:
             raise CheckError("\n".join(errors))
@@ -871,6 +910,10 @@ class Front:
                 self.err(s, "loop bounds differ in type: %s and %s" % (lt, ht))
             iv = f.vreg()
             f.emit("mov", iv, lv)
+            # the bound is read once: a snapshot, wherever the variable lives
+            hk = f.vreg()
+            f.emit("mov", hk, hv)
+            hv = hk
             if s.name in self.taken:
                 self.err(s, "the address of a loop counter cannot be taken")
             self.scope.put(s.name, ("vreg", iv, lt, False))
@@ -985,7 +1028,12 @@ class Front:
                     pa = f.vreg()
                     f.emit("bin", pa, "+", addr, off, U64)
                     if bty.is_agg:
-                        self.scope.put(bname, ("addr", pa, bty, False))
+                        # a private copy: the binder must not alias the subject
+                        cs = f.slot(bty.size, bty.align, bname)
+                        ca = f.vreg()
+                        f.emit("lea", ca, cs)
+                        f.emit("memcpy", ca, pa, bty.size)
+                        self.scope.put(bname, ("addr", ca, bty, False))
                     else:
                         bv = f.vreg(bty.kind == "float")
                         f.emit("load", bv, pa, bty.size, bty.kind == "int" and bty.signed,
@@ -1265,6 +1313,9 @@ class Front:
             sig = self.fns.get(e.name)
             if sig is None:
                 self.err(e, "unknown function %r" % e.name)
+            if e.name in self.prog.externs:
+                self.err(e, "the address of a C function cannot be taken; "
+                            "wrap it in a VIBE function")
             v = f.vreg()
             f.emit("leaf", v, e.name)
             return v, sig

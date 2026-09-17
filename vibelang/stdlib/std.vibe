@@ -7,7 +7,7 @@
 ; ---- process ---------------------------------------------------------------
 
 @ ex (c s64) v {
-  \60(c)
+  \231(c)
   ^
 }
 
@@ -48,28 +48,25 @@
 @ pn (x s64) v {
   $~ buf [24]u8
   $~ i s64 = 24
-  $~ v s64 = x
-  $~ ng b = 0
-  ? (v < 0) {
-    ng = 1
-    v = -v
+  ; the magnitude as u64, so the most negative value prints too
+  $~ u u64 = u64(x)
+  ? x < 0 {
+    u = u64(0) - u
   }
-  ? (v == 0) {
-    i = (i - 1)
+  ? u == 0 {
+    i -= 1
     buf[i] = `0
-  } : {
-    * (v > 0) {
-      i = (i - 1)
-      buf[i] = u8((`0 + (v % 10)))
-      v = (v / 10)
-    }
   }
-  ? ng {
-    i = (i - 1)
+  * u > 0 {
+    i -= 1
+    buf[i] = u8(u % 10) + `0
+    u = u / 10
+  }
+  ? x < 0 {
+    i -= 1
     buf[i] = `-
   }
-  \1(1, &buf[i], (24 - i))
-  ^
+  \1(1, &buf[i], 24 - i)
 }
 
 ; signed decimal followed by a newline
