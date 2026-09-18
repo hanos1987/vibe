@@ -3,8 +3,8 @@
 ;
 ;   new del renew            size-class allocator over the arena / mmap
 ;   %Buf  b*                 growable byte buffer and string builder
-;   %Vec  v*                 growable array of s64 (store pointers via s64(p))
-;   %Map  m*                 hash map from %Str to s64
+;   %Vec<T>  v*              growable array
+;   %Map<V>  m*              hash map from %Str to V;  %IMap<V> i*  from s64 to V
 <<"std.vibe"
 
 ; ---- allocator --------------------------------------------------------------
@@ -169,6 +169,54 @@ $~ hlock s64 = 0
   bpb(b, &t[i], (24 - i))
 }
 
+; append a float rounded to dp decimal places
+@ bpf (b *%Buf, x f64, dp s64) v {
+  $~ v = x
+  ? v < 0.0 {
+    bpc(b, `-)
+    v = -v
+  }
+  ? dp <= 0 {
+    bpn(b, s64(v + 0.5))
+    ^
+  }
+  $~ scale = 1
+  * k 0 dp {
+    scale *= 10
+  }
+  $ scaled = s64((v * f64(scale)) + 0.5)
+  bpn(b, scaled / scale)
+  bpc(b, `.)
+  $ frac = scaled % scale
+  $~ d = scale / 10
+  * d > 0 {
+    bpc(b, u8((frac / d) % 10) + `0)
+    d /= 10
+  }
+}
+
+; append lowercase hex
+@ bpx (b *%Buf, x u64) v {
+  $~ t [16]u8
+  $~ i = 16
+  $~ u = x
+  ? u == 0 {
+    i -= 1
+    t[i] = `0
+  }
+  * u > 0 {
+    i -= 1
+    $ dgt = u8(u & 15)
+    ? dgt < 10 {
+      t[i] = dgt + `0
+    } : {
+      t[i] = (dgt - 10) + `a
+    }
+    u >>= 4
+  }
+  bpb(b, &t[i], 16 - i)
+}
+
 ; the contents as a NUL-terminated %Str; valid until the next append
 @ bstr (b *%Buf) %Str {
   bneed(b, 0)
@@ -176,51 +224,75 @@ $~ hlock s64 = 0
   ^ %Str{ p: b.p, n: b.n }
 }
 
-; ---- vector of s64 -----------------------------------------------------------
+; ---- growable array ----------------------------------------------------------
 
-%Vec { p *s64, n s64, cap s64 }
+%Vec<T> { p *T, n s64, cap s64 }
 
-@ vnew () %Vec {
-  ^ %Vec{ p: *s64(0), n: 0, cap: 0 }
+@ vnew<T> () %Vec<T> {
+  ^ %Vec{ p: *T(0), n: 0, cap: 0 }
 }
 
-@ vfree (w *%Vec) v {
+@ vfree<T> (w *%Vec<T>) v {
   del(*u8(w.p))
-  w.p = *s64(0)
+  w.p = *T(0)
   w.n = 0
   w.cap = 0
 }
 
-@ vpush (w *%Vec, x s64) v {
-  ? (w.n == w.cap) {
-    $~ c s64 = (w.cap * 2)
-    ? (c < 8) {
-      c = 8
-    }
-    w.p = *s64(renew(*u8(w.p), (c * 8)))
-    w.cap = c
+@ vreserve<T> (w *%Vec<T>, n s64) v {
+  ? n <= w.cap {
+    ^
   }
-  w.p[w.n] = x
-  w.n = (w.n + 1)
+  $~ c = w.cap * 2
+  ? c < n {
+    c = n
+  }
+  ? c < 8 {
+    c = 8
+  }
+  w.p = *T(renew(*u8(w.p), c * #T))
+  w.cap = c
 }
 
-@ vpop (w *%Vec) s64 {
-  w.n = (w.n - 1)
+@ vpush<T> (w *%Vec<T>, x T) v {
+  vreserve(w, w.n + 1)
+  w.p[w.n] = x
+  w.n += 1
+}
+
+@ vpop<T> (w *%Vec<T>) T {
+  w.n -= 1
   ^ w.p[w.n]
 }
 
-; ---- hash map: %Str -> s64 ---------------------------------------------------
-;
-; Open addressing, FNV-1a, grows at 70% load. Keys are not copied: the bytes
-; a key points at must outlive its entry.
-
-%Map { keys *%Str, vals *s64, st *u8, cap s64, n s64, used s64 }
-
-@ mnew () %Map {
-  ^ %Map{ keys: *%Str(0), vals: *s64(0), st: *u8(0), cap: 0, n: 0, used: 0 }
+@ vlast<T> (w *%Vec<T>) %Opt<T> {
+  ? w.n == 0 {
+    ^ %Opt|None
+  }
+  ^ %Opt|Some(w.p[w.n - 1])
 }
 
-@ mfree (m *%Map) v {
+; remove element i, keeping the order
+@ vdel<T> (w *%Vec<T>, i s64) v {
+  * k i (w.n - 1) {
+    w.p[k] = w.p[k + 1]
+  }
+  w.n -= 1
+}
+
+; ---- hash maps ------------------------------------------------------------------
+;
+; %Map<V> maps %Str keys to V; %IMap<V> maps s64 keys to V. Open addressing,
+; FNV-1a, grows at 70% load. String keys are not copied: the bytes a key
+; points at must outlive its entry.
+
+%Map<V> { keys *%Str, vals *V, st *u8, cap s64, n s64, used s64 }
+
+@ mnew<V> () %Map<V> {
+  ^ %Map{ keys: *%Str(0), vals: *V(0), st: *u8(0), cap: 0, n: 0, used: 0 }
+}
+
+@ mfree<V> (m *%Map<V>) v {
   del(*u8(m.keys))
   del(*u8(m.vals))
   del(m.st)
@@ -231,95 +303,203 @@ $~ hlock s64 = 0
 
 @ mhash (s %Str) u64 {
   $~ h u64 = 14695981039346656037
-  $~ i s64 = 0
-  * (i < s.n) {
-    h = ((h ^ u64(s.p[i])) * 1099511628211)
-    i = (i + 1)
+  * i 0 s.n {
+    h = (h ^ u64(s.p[i])) * 1099511628211
   }
   ^ h
 }
 
 ; slot holding k, or -1
-@ mfind (m *%Map, k %Str) s64 {
-  ? (m.cap == 0) {
+@ mfind<V> (m *%Map<V>, k %Str) s64 {
+  ? m.cap == 0 {
     ^ -1
   }
-  $ mask s64 = (m.cap - 1)
-  $~ i s64 = (s64((mhash(k) >> 1)) & mask)
-  * (m.st[i] != u8(0)) {
-    ? ((m.st[i] == u8(1)) && seq(m.keys[i], k)) {
+  $ mask = m.cap - 1
+  $~ i = s64(mhash(k) >> 1) & mask
+  * m.st[i] != 0 {
+    ? (m.st[i] == 1) && (m.keys[i] == k) {
       ^ i
     }
-    i = ((i + 1) & mask)
+    i = (i + 1) & mask
   }
   ^ -1
 }
 
-@ mgrow (m *%Map) v {
-  $ old %Map = m'
-  $~ c s64 = (old.cap * 2)
-  ? (c < 16) {
+@ mgrow<V> (m *%Map<V>) v {
+  $ old %Map<V> = m'
+  $~ c = old.cap * 2
+  ? c < 16 {
     c = 16
   }
-  m.keys = *%Str(new((c * #%Str)))
-  m.vals = *s64(new((c * 8)))
+  m.keys = *%Str(new(c * #%Str))
+  m.vals = *V(new(c * #V))
   m.st = new(c)
   set(m.st, 0, c)
   m.cap = c
   m.n = 0
   m.used = 0
-  $~ i s64 = 0
-  * (i < old.cap) {
-    ? (old.st[i] == u8(1)) {
+  * i 0 old.cap {
+    ? old.st[i] == 1 {
       mset(m, old.keys[i], old.vals[i])
     }
-    i = (i + 1)
   }
   del(*u8(old.keys))
   del(*u8(old.vals))
   del(old.st)
 }
 
-@ mset (m *%Map, k %Str, x s64) v {
-  $ at s64 = mfind(m, k)
-  ? (at >= 0) {
+@ mset<V> (m *%Map<V>, k %Str, x V) v {
+  $ at = mfind(m, k)
+  ? at >= 0 {
     m.vals[at] = x
     ^
   }
-  ? (((m.used + 1) * 10) > (m.cap * 7)) {
+  ? ((m.used + 1) * 10) > (m.cap * 7) {
     mgrow(m)
   }
-  $ mask s64 = (m.cap - 1)
-  $~ i s64 = (s64((mhash(k) >> 1)) & mask)
-  * (m.st[i] == u8(1)) {
-    i = ((i + 1) & mask)
+  $ mask = m.cap - 1
+  $~ i = s64(mhash(k) >> 1) & mask
+  * m.st[i] == 1 {
+    i = (i + 1) & mask
   }
-  ? (m.st[i] == u8(0)) {
-    m.used = (m.used + 1)
+  ? m.st[i] == 0 {
+    m.used += 1
   }
   m.st[i] = 1
   m.keys[i] = k
   m.vals[i] = x
-  m.n = (m.n + 1)
+  m.n += 1
 }
 
-@ mhas (m *%Map, k %Str) b {
-  ^ (mfind(m, k) >= 0)
+@ mhas<V> (m *%Map<V>, k %Str) b {
+  ^ mfind(m, k) >= 0
 }
 
 ; value for k, or dflt when absent
-@ mget (m *%Map, k %Str, dflt s64) s64 {
-  $ at s64 = mfind(m, k)
-  ? (at < 0) {
+@ mget<V> (m *%Map<V>, k %Str, dflt V) V {
+  $ at = mfind(m, k)
+  ? at < 0 {
     ^ dflt
   }
   ^ m.vals[at]
 }
 
-@ mdel (m *%Map, k %Str) v {
-  $ at s64 = mfind(m, k)
-  ? (at >= 0) {
+; address of the value for k, or 0
+@ mref<V> (m *%Map<V>, k %Str) *V {
+  $ at = mfind(m, k)
+  ? at < 0 {
+    ^ *V(0)
+  }
+  ^ &m.vals[at]
+}
+
+@ mdel<V> (m *%Map<V>, k %Str) v {
+  $ at = mfind(m, k)
+  ? at >= 0 {
     m.st[at] = 2
-    m.n = (m.n - 1)
+    m.n -= 1
+  }
+}
+
+; ---- integer-keyed map ------------------------------------------------------------
+
+%IMap<V> { keys *s64, vals *V, st *u8, cap s64, n s64, used s64 }
+
+@ inew<V> () %IMap<V> {
+  ^ %IMap{ keys: *s64(0), vals: *V(0), st: *u8(0), cap: 0, n: 0, used: 0 }
+}
+
+@ ifree<V> (m *%IMap<V>) v {
+  del(*u8(m.keys))
+  del(*u8(m.vals))
+  del(m.st)
+  m.cap = 0
+  m.n = 0
+  m.used = 0
+}
+
+@ ihash (k s64) u64 {
+  $~ h = u64(k) * 11400714819323198485
+  ^ h ^ (h >> 29)
+}
+
+@ ifind<V> (m *%IMap<V>, k s64) s64 {
+  ? m.cap == 0 {
+    ^ -1
+  }
+  $ mask = m.cap - 1
+  $~ i = s64(ihash(k) >> 1) & mask
+  * m.st[i] != 0 {
+    ? (m.st[i] == 1) && (m.keys[i] == k) {
+      ^ i
+    }
+    i = (i + 1) & mask
+  }
+  ^ -1
+}
+
+@ igrow<V> (m *%IMap<V>) v {
+  $ old %IMap<V> = m'
+  $~ c = old.cap * 2
+  ? c < 16 {
+    c = 16
+  }
+  m.keys = *s64(new(c * 8))
+  m.vals = *V(new(c * #V))
+  m.st = new(c)
+  set(m.st, 0, c)
+  m.cap = c
+  m.n = 0
+  m.used = 0
+  * i 0 old.cap {
+    ? old.st[i] == 1 {
+      iset(m, old.keys[i], old.vals[i])
+    }
+  }
+  del(*u8(old.keys))
+  del(*u8(old.vals))
+  del(old.st)
+}
+
+@ iset<V> (m *%IMap<V>, k s64, x V) v {
+  $ at = ifind(m, k)
+  ? at >= 0 {
+    m.vals[at] = x
+    ^
+  }
+  ? ((m.used + 1) * 10) > (m.cap * 7) {
+    igrow(m)
+  }
+  $ mask = m.cap - 1
+  $~ i = s64(ihash(k) >> 1) & mask
+  * m.st[i] == 1 {
+    i = (i + 1) & mask
+  }
+  ? m.st[i] == 0 {
+    m.used += 1
+  }
+  m.st[i] = 1
+  m.keys[i] = k
+  m.vals[i] = x
+  m.n += 1
+}
+
+@ ihas<V> (m *%IMap<V>, k s64) b {
+  ^ ifind(m, k) >= 0
+}
+
+@ iget<V> (m *%IMap<V>, k s64, dflt V) V {
+  $ at = ifind(m, k)
+  ? at < 0 {
+    ^ dflt
+  }
+  ^ m.vals[at]
+}
+
+@ idel<V> (m *%IMap<V>, k s64) v {
+  $ at = ifind(m, k)
+  ? at >= 0 {
+    m.st[at] = 2
+    m.n -= 1
   }
 }

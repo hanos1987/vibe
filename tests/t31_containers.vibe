@@ -1,0 +1,55 @@
+; generic containers: %Vec<T>, %Map<V>, %IMap<V>, Buf float/hex
+; out: 3 2.50 c
+; out: 2
+; out: 42 -1 1
+; out: 1.50 ff 3.14
+<<"heap.vibe"
+
+%Pt { x s64, y s64 }
+
+@! () s64 {
+  $~ ps %Vec<%Pt> = vnew()
+  ps.vpush(%Pt{ x: 1, y: 2 })
+  ps.vpush(%Pt{ x: 3, y: 4 })
+  $~ fs %Vec<f64> = vnew()
+  fs.vpush(2.5)
+  $~ cs %Vec<u8> = vnew()
+  cs.vpush(`c)
+  pn(ps.p[1].x)
+  pc(` )
+  pf(fs.p[0], 2)
+  pc(` )
+  pc(cs.p[0])
+  nl()
+  ps.vdel(0)
+  ?? ps.vlast() {
+    |Some(p) {
+      pnl(p.y - 2)
+    }
+    |None {
+      ps("none\n")
+    }
+  }
+  $~ m %Map<%Pt> = mnew()
+  m.mset("a", %Pt{ x: 42, y: 0 })
+  $ got = m.mget("a", %Pt{ x: -1, y: -1 })
+  $ miss = m.mget("zz", %Pt{ x: -1, y: -1 })
+  $~ im %IMap<b> = inew()
+  * i 0 100 {
+    im.iset(i * 7, b(i % 2))
+  }
+  pn(got.x)
+  pc(` )
+  pn(miss.x)
+  pc(` )
+  pnl(s64(im.iget(7, 0)))
+  $~ bf = bnew()
+  bf.bpf(1.5, 2)
+  bf.bpc(` )
+  bf.bpx(255)
+  bf.bpc(` )
+  bf.bpf(3.14159, 2)
+  ps(bf.bstr())
+  nl()
+  ^ 0
+}

@@ -38,7 +38,7 @@
   wr(1, s.p, 9)
   nl()
 
-  $~ w %Vec = vnew()
+  $~ w %Vec<s64> = vnew()
   i = 0
   * (i < 1000) {
     vpush(&w, (i * i))
@@ -48,7 +48,7 @@
   pnl(vpop(&w))
   pnl(w.n)
 
-  $~ m %Map = mnew()
+  $~ m %Map<s64> = mnew()
   $~ names [200]%Buf
   i = 0
   * (i < 200) {
