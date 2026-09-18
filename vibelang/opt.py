@@ -663,6 +663,89 @@ def licm(f):
     return changed
 
 
+def strength_reduce(f):
+    """`t = i * K` inside a loop whose counter i steps by a constant becomes
+    a running value u, stepped by c*K next to the counter: one add instead
+    of a multiply per iteration."""
+    changed = False
+    for _ in range(8):
+        loops = find_loops(f)
+        if not loops:
+            break
+        loops.sort(key=lambda pr: pr[1] - pr[0])
+        whole = def_counts(f)
+        did = False
+        for (j, i) in loops:
+            body = f.ins[j:i + 1]
+            dcount = {}
+            for x in body:
+                for d in defs_of(x):
+                    dcount[d] = dcount.get(d, 0) + 1
+            counters = {}      # v -> (index of its bini, step)
+            for k in range(j, i + 1):
+                x = f.ins[k]
+                if (x.op == "bini" and x.b == "+" and x.a == x.c
+                        and dcount.get(x.a, 0) == 1):
+                    counters[x.a] = (k, x.d)
+            if not counters:
+                continue
+            cands = []
+            for k in range(j, i + 1):
+                x = f.ins[k]
+                if x.op == "bini" and x.b == "*" and x.c in counters \
+                        and whole.get(x.a, 0) == 1:
+                    cands.append((k, x.c, x.d, None))
+                elif x.op == "bin" and x.b == "*" and whole.get(x.a, 0) == 1:
+                    if x.c in counters and whole.get(x.d, 0) == 1 \
+                            and x.d not in dcount:
+                        cands.append((k, x.c, None, x.d))
+                    elif x.d in counters and whole.get(x.c, 0) == 1 \
+                            and x.c not in dcount:
+                        cands.append((k, x.d, None, x.c))
+            if not cands:
+                continue
+            # one running value per (counter, multiplier)
+            groups = {}
+            for (k, v, K, w) in cands:
+                groups.setdefault((v, K, w), []).append(k)
+            inside = set(x.a for x in body if x.op == "label")
+            p = j
+            while p > 0 and f.ins[p - 1].op == "jmp" and f.ins[p - 1].a in inside:
+                p -= 1
+            pre = []
+            after = {}         # counter bini index -> instructions to add
+            repl = {}
+            for (v, K, w), ks in groups.items():
+                ty = f.ins[ks[0]].e
+                u = f.vreg()
+                cidx, step = counters[v]
+                if K is not None:
+                    pre.append(Ins("bini", u, "*", v, K, ty))
+                    after.setdefault(cidx, []).append(
+                        Ins("bini", u, "+", u, step * K, ty))
+                else:
+                    pre.append(Ins("bin", u, "*", v, w, ty))
+                    sv = f.vreg()
+                    pre.append(Ins("bini", sv, "*", w, step, ty))
+                    after.setdefault(cidx, []).append(
+                        Ins("bin", u, "+", u, sv, ty))
+                for k in ks:
+                    repl[k] = Ins("mov", f.ins[k].a, u)
+            out = []
+            for k, x in enumerate(f.ins):
+                if k == p:
+                    out.extend(pre)
+                out.append(repl.get(k, x))
+                if k in after:
+                    out.extend(after[k])
+            f.ins = out
+            did = changed = True
+            break
+        if not did:
+            break
+    return changed
+
+
 def clean_labels(f):
     """Drop `jmp L` immediately followed by `label L`."""
     out = []
@@ -815,6 +898,7 @@ def optimise(prog):
             c |= fuse_branches(f)
             c |= clean_labels(f)
             c |= licm(f)
+            c |= strength_reduce(f)
             if not c:
                 break
     return prog

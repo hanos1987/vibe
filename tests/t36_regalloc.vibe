@@ -1,0 +1,38 @@
+; register pressure with shifts, division and syscalls: rcx/rdx allocation
+; out: 53 30 7 0 5
+; out: 82
+<<"std.vibe"
+
+@ mix (a s64, b s64, c s64, d s64, e s64, f s64, g s64, h s64) s64 {
+  $~ t = 0
+  * i 0 4 {
+    $ sh = (a + i) & 3
+    $ x = (b << sh) >> 1
+    $ q = (c + i) / 3
+    $ r = (d + i) % 4
+    $ y = e * (f + 1)
+    t += (x + q) + (r + y)
+    t += g >> sh
+    t += h << 1
+    \1(1, "".p, 0)
+    t = (t + 1) % 1000
+  }
+  ^ t
+}
+
+@! () s64 {
+  $~ n = 5
+  $ v = mix(1, 2, 3, 4, 5, 6, 7, 8)
+  $ w = v % 1000
+  pn(w & 63)
+  pc(` )
+  pn(w >> 3)
+  pc(` )
+  pn((w >> n) & 7)
+  pc(` )
+  pn(w % 7)
+  pc(` )
+  pnl(n)
+  pnl(mix(0, 1, 2, 3, 4, 5, 6, 7) % 100)
+  ^ 0
+}

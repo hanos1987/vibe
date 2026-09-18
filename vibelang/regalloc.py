@@ -15,7 +15,7 @@ from .x64 import RAX, RCX, RDX, RBX, RSI, RDI, R8, R9, R12, R13, R14, R15
 
 # r10/r11 stay free as scratch; rax/rcx/rdx are implicit in div, shifts,
 # setcc, syscalls and return values, so they are never allocated.
-GP_POOL = [RBX, R12, R13, R14, R15, RSI, RDI, R8, R9]
+GP_POOL = [RBX, R12, R13, R14, R15, RSI, RDI, R8, R9, RCX, RDX]
 GP_CALLEE = [RBX, R12, R13, R14, R15]
 CALLEE_SAVED = set(GP_CALLEE)
 
@@ -23,7 +23,7 @@ CALLEE_SAVED = set(GP_CALLEE)
 XMM_POOL = list(range(3, 14))
 
 SMALL_COPY = 64      # bytes; at or below this a copy is inline moves
-SYS_ARG_POOL = [RDI, RSI, None, None, R8, R9]   # rdx, r10 are never allocated
+SYS_ARG_POOL = [RDI, RSI, RDX, None, R8, R9]    # r10 is never allocated
 
 CALL_LIKE = {"call", "syscall", "calli", "memcpy", "memzero"}
 
@@ -203,13 +203,20 @@ def allocate(f):
         if x.op in ("call", "calli"):
             call_idx.append((i, ALL))
         elif x.op == "syscall":
-            call_idx.append((i, set(SYS_ARG_POOL[:len(x.c)])))
+            # the instruction itself destroys rcx and r11
+            call_idx.append((i, set(SYS_ARG_POOL[:len(x.c)]) | {RCX} - {None}))
         elif x.op == "intr" and x.b == "clone":
-            call_idx.append((i, {RDI, RSI, R8}))
+            call_idx.append((i, {RDI, RSI, RDX, R8, RCX}))
+        elif x.op == "intr" and x.b == "rdtsc":
+            call_idx.append((i, {RDX}))
+        elif x.op == "bin" and x.b in ("/", "%"):
+            call_idx.append((i, {RDX}))
+        elif x.op == "bin" and x.b in ("<<", ">>"):
+            call_idx.append((i, {RCX}))
         elif x.op == "memcpy" and x.c > SMALL_COPY:
-            call_idx.append((i, {RDI, RSI}))
+            call_idx.append((i, {RDI, RSI, RCX}))
         elif x.op == "memzero" and x.b > SMALL_COPY:
-            call_idx.append((i, {RDI}))
+            call_idx.append((i, {RDI, RCX}))
 
     def crosses(v):
         """None, or the set of registers (or ALL) destroyed while v lives."""

@@ -810,6 +810,9 @@ class CodeGen:
             return
         if o in ("<<", ">>"):
             x = self.rd(ins.c, R10)
+            if x == RCX:
+                a.mov_rr(R10, x)     # rcx is about to hold the count
+                x = R10
             cnt = self.rd(ins.d, RCX)
             if cnt != RCX:
                 a.mov_rr(RCX, cnt)
