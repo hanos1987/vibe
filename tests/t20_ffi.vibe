@@ -21,4 +21,3 @@
   pnl(s64(cabs(-4)))
   ^ 0
 }
-/bin/bash: line 1: unalias: unsetenv: not found
