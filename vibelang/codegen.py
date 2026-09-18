@@ -831,6 +831,12 @@ class CodeGen:
         x = self.rd(ins.c, R10)
         y = self.rd(ins.d, R11)
         r = self.wreg(d, R10)
+        if o == "+" and r != x and r != y and self.loc[d][0] == "r" \
+                and (RSP not in (x, y)) and (ty is None or ty.size == 8):
+            # three-operand add: one lea instead of a copy and an add
+            a.lea(r, Mem(x, 0, y, 1))
+            self.done(d, r)
+            return
         if r == y:
             r = R10
             if r == y:

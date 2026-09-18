@@ -294,6 +294,19 @@ def allocate(f):
                             hint = cand
                             break
             if hint is None and not pool:
+                # evict the float a register is worth least to
+                best = None
+                for k2, (e2, v2, r2, f2) in enumerate(active):
+                    if not f2:
+                        continue
+                    if best is None or weight.get(v2, 0) < weight.get(active[best][1], 0):
+                        best = k2
+                if best is not None and weight.get(active[best][1], 0) < weight.get(v, 0):
+                    e2, v2, r2, f2 = active.pop(best)
+                    loc[v2] = ("m",)
+                    loc[v] = ("x", r2)
+                    active.append((end[v], v, r2, True))
+                    continue
                 loc[v] = ("m",)
                 continue
             r = hint if hint is not None else pool[0]

@@ -611,7 +611,7 @@ def dce(f):
 
 # `const` is deliberately absent: materialising a constant costs one
 # instruction, while keeping it live across a loop costs a register.
-HOISTABLE = {"bin", "bini", "un", "cvt", "lea", "leag", "leas",
+HOISTABLE = {"bin", "bini", "un", "cvt", "lea", "leag", "leas", "fconst",
              "fbin", "cmp", "cmpi", "fcmp"}
 
 
