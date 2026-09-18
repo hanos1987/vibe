@@ -70,6 +70,8 @@ def uses_of(ins):
         return [ins.a]
     if op == "brc":
         return [ins.b] if ins.c is None else [ins.b, ins.c]
+    if op == "fbrc":
+        return [ins.b, ins.c]
     if op == "ret":
         return [ins.a] if ins.a is not None else []
     if op in ("call", "syscall", "intr"):
@@ -123,6 +125,9 @@ def replace_uses(ins, mapping):
         ins.b = m(ins.b)
         if ins.c is not None:
             ins.c = m(ins.c)
+    elif op == "fbrc":
+        ins.b = m(ins.b)
+        ins.c = m(ins.c)
     elif op == "ret":
         if ins.a is not None:
             ins.a = m(ins.a)
@@ -346,6 +351,12 @@ def fuse_branches(f):
     while i < n:
         cur = f.ins[i]
         nxt = f.ins[i + 1] if i + 1 < n else None
+        if (cur.op == "fcmp" and nxt is not None and nxt.op == "br"
+                and nxt.a == cur.a and uses.get(cur.a, 0) == 1):
+            out.append(Ins("fbrc", cur.b, cur.c, cur.d, cur.e, (nxt.b, nxt.c)))
+            i += 2
+            changed = True
+            continue
         if (cur.op in ("cmp", "cmpi") and nxt is not None and nxt.op == "br"
                 and nxt.a == cur.a and uses.get(cur.a, 0) == 1):
             if cur.op == "cmp":
@@ -403,7 +414,7 @@ def find_loops(f):
         tgts = []
         if x.op == "jmp":
             tgts = [x.a]
-        elif x.op == "brc":
+        elif x.op in ("brc", "fbrc"):
             tgts = list(x.e)
         elif x.op == "br":
             tgts = [x.b, x.c]
@@ -454,8 +465,12 @@ def licm(f):
                 move.append(k)
             if not move:
                 continue
+            # the pre-header: before the jump that enters the loop (a
+            # rotated loop is entered by a jump to its test, which lies
+            # inside the loop range)
+            inside = set(x.a for x in f.ins[j:i + 1] if x.op == "label")
             p = j
-            while p > 0 and f.ins[p - 1].op == "jmp" and f.ins[p - 1].a == f.ins[j].a:
+            while p > 0 and f.ins[p - 1].op == "jmp" and f.ins[p - 1].a in inside:
                 p -= 1
             mset = set(move)
             moved = [f.ins[k] for k in move]

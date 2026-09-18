@@ -950,20 +950,22 @@ class Front:
             return
 
         if isinstance(s, A.While):
+            # rotated: the test sits after the body, so one branch per
+            # iteration instead of a jump and a branch
             lc = f.label("cond")
             lb = f.label("body")
             lx = f.label("endloop")
+            f.emit("jmp", lc)
+            f.emit("label", lb)
+            self.loops.append((lc, lx, len(self.defers)))
+            self.block(s.body)
+            self.loops.pop()
             f.emit("jmp", lc)
             f.emit("label", lc)
             c, ct = self.rval(s.cond, BOOL)
             if ct != BOOL:
                 self.err(s, "loop condition must be b, got %s" % ct)
             f.emit("br", c, lb, lx)
-            f.emit("label", lb)
-            self.loops.append((lc, lx, len(self.defers)))
-            self.block(s.body)
-            self.loops.pop()
-            f.emit("jmp", lc)
             f.emit("label", lx)
             return
 
@@ -998,10 +1000,6 @@ class Front:
             ls = f.label("step")
             lx = f.label("endloop")
             f.emit("jmp", lc)
-            f.emit("label", lc)
-            c = f.vreg()
-            f.emit("cmp", c, "<", iv, hv, lt.signed)
-            f.emit("br", c, lb, lx)
             f.emit("label", lb)
             self.loops.append((ls, lx, len(self.defers)))
             self.block(s.body)
@@ -1014,6 +1012,10 @@ class Front:
             f.emit("bin", nv, "+", iv, one, lt)
             f.emit("mov", iv, nv)
             f.emit("jmp", lc)
+            f.emit("label", lc)
+            c = f.vreg()
+            f.emit("cmp", c, "<", iv, hv, lt.signed)
+            f.emit("br", c, lb, lx)
             f.emit("label", lx)
             self.scope = saved
             return

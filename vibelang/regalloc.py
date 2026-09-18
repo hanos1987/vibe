@@ -85,7 +85,7 @@ def build_blocks(f):
         if x.op == "label":
             starts.add(i)
             label_at[x.a] = i
-        if x.op in ("jmp", "br", "brc", "ret") and i + 1 < n:
+        if x.op in ("jmp", "br", "brc", "fbrc", "ret") and i + 1 < n:
             starts.add(i + 1)
     ordered = sorted(starts)
     blocks = []
@@ -107,7 +107,7 @@ def build_blocks(f):
                 t = label_at.get(tgt)
                 if t is not None:
                     b.succ.append(index_of[t])
-        elif last.op == "brc":
+        elif last.op in ("brc", "fbrc"):
             for tgt in last.e:
                 t = label_at.get(tgt)
                 if t is not None:

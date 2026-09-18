@@ -393,6 +393,8 @@ class CodeGen:
         f = self.f
 
         if op == "label":
+            if ins.a.startswith(".body") and self.opt:
+                a.align(16, 11)      # loop head: keep the jump target aligned
             a.label(ins.a)
             return
 
@@ -609,6 +611,33 @@ class CodeGen:
             c = self.rd(ins.a, RAX)
             a.test_rr(c, c)
             self.emit_branch("ne", ins.b, ins.c)
+            return
+
+        if op == "fbrc":
+            o, x, y, bits = ins.a, ins.b, ins.c, ins.d
+            lt, lf = ins.e
+            xr = self.rdf(x, XT0)
+            yr = self.rdf(y, XT1)
+            # same operand order tricks as fcmp: unordered must fall to lf
+            if o in ("<", "<="):
+                a.ucomis(yr, xr, bits)
+                self.emit_branch("a" if o == "<" else "ae", lt, lf)
+            elif o in (">", ">="):
+                a.ucomis(xr, yr, bits)
+                self.emit_branch("a" if o == ">" else "ae", lt, lf)
+            elif o == "==":
+                # equal and ordered: jne -> lf, jp -> lf, else lt
+                a.ucomis(xr, yr, bits)
+                a.jcc("ne", lf)
+                a.jcc("p", lf)
+                if self.next_label != lt:
+                    a.jmp(lt)
+            else:
+                a.ucomis(xr, yr, bits)
+                a.jcc("ne", lt)
+                a.jcc("p", lt)
+                if self.next_label != lf:
+                    a.jmp(lf)
             return
 
         if op == "brc":

@@ -66,6 +66,23 @@ class Asm:
     def label(self, name):
         self.labels[name] = len(self.buf)
 
+    # multi-byte NOPs, index = length
+    NOPS = [b"", b"\x90", b"\x66\x90", b"\x0f\x1f\x00", b"\x0f\x1f\x40\x00",
+            b"\x0f\x1f\x44\x00\x00", b"\x66\x0f\x1f\x44\x00\x00",
+            b"\x0f\x1f\x80\x00\x00\x00\x00",
+            b"\x0f\x1f\x84\x00\x00\x00\x00\x00",
+            b"\x66\x0f\x1f\x84\x00\x00\x00\x00\x00"]
+
+    def align(self, n=16, limit=15):
+        """Pad with NOPs to an n-byte boundary, unless that needs more than
+        `limit` bytes (a loop head is worth a little padding, not a lot)."""
+        pad = (-len(self.buf)) % n
+        if 0 < pad <= limit:
+            while pad:
+                k = min(pad, 9)
+                self.buf += self.NOPS[k]
+                pad -= k
+
     def _fix(self, kind, target, addend=0):
         self.fixups.append([len(self.buf), 4, kind, target, addend])
         self.buf.extend(b"\0\0\0\0")
