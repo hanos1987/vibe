@@ -63,7 +63,12 @@ class CodeGen:
                 self.ro.append(0)
             self.ro_syms[lbl] = len(self.ro)
             self.ro += blob
-        for lbl, (size, align, init) in self.prog.globals.items():
+        # initialised globals first; the zeroed ones after them need no
+        # bytes in the file (bss)
+        items = sorted(self.prog.globals.items(),
+                       key=lambda kv: kv[1][2] is None)
+        self.bss = 0
+        for lbl, (size, align, init) in items:
             a = max(align, 1)
             while len(self.data) % a:
                 self.data.append(0)
@@ -73,6 +78,10 @@ class CodeGen:
                 self.data += b"\0" * (size - len(init))
             else:
                 self.data += b"\0" * size
+        # trailing zero bytes become bss
+        stripped = bytes(self.data).rstrip(b"\0")
+        self.bss = len(self.data) - len(stripped)
+        self.data = bytearray(stripped)
 
     # --------------------------------------------------------------- frame
     def layout_frame(self, f):
@@ -272,7 +281,8 @@ class CodeGen:
             syms.append(("vibe_entry" if n == "@!" else n, off, end - off))
         syms.append(("_start", 0, fnames[0][1] if fnames else 0))
         return elf.build_elf(bytes(code), bytes(self.ro), bytes(self.data), 0,
-                             () if getattr(self, "strip", False) else syms)
+                             () if getattr(self, "strip", False) else syms,
+                             bss=self.bss)
 
     # ------------------------------------------------------- one function
     def gen_func(self, f):

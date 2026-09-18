@@ -362,11 +362,11 @@ class CGen:
             else:
                 e = narrow("vibe_f2i(v%d)" % s, tt)
         elif tt.kind == "float":
-            e = "(double)v%d" % s
-            if ft.kind == "int" and not ft.signed and ft.size == 8:
-                e = "(double)(u64)v%d" % s
+            src = "(u64)v%d" % s if (ft.kind == "int" and not ft.signed
+                                    and ft.size == 8) else "v%d" % s
+            e = "(double)%s" % src
             if tt.bits == 32:
-                e = "(double)(float)v%d" % s
+                e = "(double)(float)%s" % src
         else:
             e = narrow("v%d" % s, tt)
         self.out.append("  v%d = %s;" % (d, e))

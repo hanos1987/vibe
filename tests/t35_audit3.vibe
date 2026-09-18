@@ -1,0 +1,53 @@
+; regressions from the third audit
+; out: 43e0000000000000 8000000000000000
+; out: 1
+; out: 10000000000000.000000 1e+300ok inf -inf nan 0.50000000000000000 2.50
+; out: 1 0
+<<"heap.vibe"
+
+$~ calls = 0
+
+@ idx () s64 {
+  calls += 1
+  ^ 1
+}
+
+@ inc (p *s64) v {
+  p' += 1
+}
+
+@ half (x s64) %Res<s64, %Str> {
+  ^ %Res|Ok(x / 2)
+}
+
+@ f (x s64) %Res<s64, %Str> {
+  $ q = half(x)! - 1
+  ^ %Res|Ok(q)
+}
+
+@! () s64 {
+  $ big u64 = 0x8000000000000000
+  px(\bits(f64(f32(big))))
+  pc(` )
+  $ m u64 = 18446744073709551615
+  px(u64(f32(m)))
+  nl()
+  $~ xs [3]s64
+  xs[idx()].inc()
+  pnl(calls)
+  $ s = \fmt("{}", 1.0e13)
+  $ t = \fmt("{.0}", 1.0e300)
+  \print("{} {}{} {} {} {} {.17} {.2}\n", s, t, "ok", 1.0 / 0.0, -1.0 / 0.0, 0.0 / 0.0, 0.5, 2.5)
+  ?? f(4) {
+    |Ok(v) {
+      pn(v)
+    }
+    |Err(m) {
+      ps(m)
+    }
+  }
+  pc(` )
+  $ z = 0
+  pnl(s64(!(z == 0)))
+  ^ 0
+}

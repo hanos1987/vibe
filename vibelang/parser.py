@@ -608,9 +608,9 @@ class Parser:
             if self.at("'"):
                 self.next()
                 e = A.Deref(e, line=t.line, col=t.col)
-            elif self.at("!") and not self.peek().kind == "ID" \
-                    and not self.peek().is_p("(", "\\", "!", "-", "~", "&"):
-                # postfix: unwrap, or return the failure to the caller
+            elif self.at("!"):
+                # postfix: unwrap, or return the failure to the caller (a
+                # prefix ! can never follow a complete operand)
                 self.next()
                 e = A.Try(e, line=t.line, col=t.col)
             elif self.at("."):

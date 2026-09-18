@@ -57,13 +57,28 @@ def depth0_ops(s):
 
 def balanced(s):
     d = 0
-    for c in s:
-        if c in "([{":
+    i = 0
+    instr = None
+    while i < len(s):
+        c = s[i]
+        if instr:
+            if c == "\\":
+                i += 2
+                continue
+            if c == instr:
+                instr = None
+        elif c == '"':
+            instr = c
+        elif c == "`":
+            i += 2 if s[i + 1:i + 2] != "\\" else 3
+            continue
+        elif c in "([{":
             d += 1
         elif c in ")]}":
             d -= 1
             if d < 0:
                 return False
+        i += 1
     return d == 0
 
 

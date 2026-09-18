@@ -19,7 +19,7 @@ def align_up(x, a):
     return (x + a - 1) & ~(a - 1)
 
 
-def build_elf(code, rodata, data, entry_off, symbols=()):
+def build_elf(code, rodata, data, entry_off, symbols=(), bss=0):
     """code/rodata/data are bytes; entry_off is an offset into `code`.
 
     Returns (elf_bytes, text_vaddr, rodata_vaddr, data_vaddr).
@@ -53,7 +53,7 @@ def build_elf(code, rodata, data, entry_off, symbols=()):
     out += struct.pack("<IIQQQQQQ", PT_LOAD, PF_R | PF_X, 0, text_vaddr,
                        text_vaddr, text_end, text_end, PAGE)
     out += struct.pack("<IIQQQQQQ", PT_LOAD, PF_R | PF_W, data_off, data_vaddr,
-                       data_vaddr, len(data), len(data), PAGE)
+                       data_vaddr, len(data), len(data) + bss, PAGE)
 
     assert len(out) == hdr_size
     out += b"\0" * (code_off - len(out))
@@ -61,7 +61,7 @@ def build_elf(code, rodata, data, entry_off, symbols=()):
     out += b"\0" * (ro_off - len(out))
     out += rodata
     assert len(out) == text_end
-    if data:
+    if data or bss:
         out += b"\0" * (data_off - len(out))
         out += data
     if symbols:

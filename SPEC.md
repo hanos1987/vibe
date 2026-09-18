@@ -449,8 +449,9 @@ Deferred statements run on that early return like on any other.
 $ s = \fmt("{}-{}", a, b)        ; a heap %Str; del(s.p) when done
 ```
 
-`{}` prints by type: integers in decimal, floats with six decimals, `%Str`
-and `*u8` as text, `b` as 0/1, other pointers in hex. `{.N}` sets a float's
+`{}` prints by type: integers in decimal, floats with six decimals (values
+of 10^18 and above in exponent form, `inf`/`nan` as such), `%Str` and `*u8`
+as text (a null `*u8` as `(null)`), `b` as 0/1, other pointers in hex. `{.N}` sets a float's
 decimals, `{x}` prints an integer in hex, `{c}` a `u8` as a character.
 Formatting needs `<<"heap.vibe"`.
 
@@ -558,6 +559,10 @@ namespace: its functions, types, globals and constants are reachable only as
 `name.thing`. Inside the file nothing changes. Use it for your own modules,
 and whenever a library's names collide with yours. A plain `<<"file"` shares
 one flat namespace, which is how the standard library is normally used.
+
+A program may declare a name the library already uses. The program's
+definition is the one the program sees; the library keeps calling its own
+version, so redefining `max` or `beq` changes nothing inside `std.vibe`.
 
 ---
 
@@ -687,7 +692,8 @@ python3 tools/restyle.py f.vibe   rewrite a file in the economical style
 
 Native binaries carry an ELF symbol table, so `gdb`, `perf` and `objdump`
 name VIBE functions; `-s` drops it (a stripped hello world is about 300
-bytes).
+bytes). Small functions are inlined by the optimiser, so at `-O` their
+symbols may be absent; build with `-O0` to break on any function.
 
 **Two backends, one language.** The native backend needs nothing but
 Python and is the default: builds are instant and the binaries are tiny.

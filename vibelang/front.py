@@ -10,6 +10,7 @@ import struct
 
 from . import ast_ as A
 from . import names
+MODNAMES = names
 from . import ir
 from .parser import parse
 from .types import (VOID, BOOL, S8, S16, S32, S64, U8, U16, U32, U64, F32, F64,
@@ -21,7 +22,7 @@ class CheckError(Exception):
 
 
 def has_side_effects(e):
-    if isinstance(e, (A.Call, A.CallP, A.Syscall, A.Intrinsic)):
+    if isinstance(e, (A.Call, A.CallP, A.Syscall, A.Intrinsic, A.Try)):
         return True
     for f in getattr(e, "__slots__", ()):
         x = getattr(e, f, None)
@@ -373,10 +374,14 @@ class Front:
             if n and not getattr(d, "_std", False):
                 mine.add((type(d).__name__, n))
         if mine:
-            self.decls = [(fn, d) for (fn, d) in self.decls
-                          if not (getattr(d, "_std", False) and
-                                  (type(d).__name__, getattr(d, "name", None))
-                                  in mine)]
+            # the library keeps using its own version under a hidden name;
+            # the program's version is what the program sees
+            lib = [d for (fn, d) in self.decls if getattr(d, "_std", False)]
+            clash = set(n for (kind, n) in mine
+                        if any(type(d).__name__ == kind and
+                               getattr(d, "name", None) == n for d in lib))
+            if clash:
+                MODNAMES.prefix(lib, "std", clash)
         generic = [(fn, d) for (fn, d) in self.decls
                    if getattr(d, "tparams", None)]
         self.decls = [(fn, d) for (fn, d) in self.decls
@@ -579,6 +584,8 @@ class Front:
                 return inner
         if isinstance(e, A.Ident) and e.name in self.fconstants:
             return self.fconstants[e.name]
+        if isinstance(e, A.Ident) and e.name in self.constants:
+            return float(self.constants[e.name][1])
         if isinstance(e, A.Bin) and e.op in ("+", "-", "*", "/"):
             x, y = self.const_float(e.a), self.const_float(e.b)
             if x is None or y is None or (e.op == "/" and y == 0):
@@ -1326,6 +1333,13 @@ class Front:
                 top = (1 << (bits - 1)) if ty.signed else (1 << bits) - 1
                 if e.v > top:
                     self.err(e, "%d does not fit in %s" % (e.v, ty))
+            elif ty.kind == "int" and ty.signed and e.v > (1 << 63):
+                if want is None:
+                    ty = U64          # too big for s64: it is a u64 literal
+                else:
+                    self.err(e, "%d does not fit in %s" % (e.v, ty))
+            elif ty.kind == "int" and e.v >= (1 << 64):
+                self.err(e, "%d does not fit in %s" % (e.v, ty))
             v = f.vreg()
             f.emit("const", v, e.v & 0xFFFFFFFFFFFFFFFF if e.v >= 0 else e.v)
             return v, ty
@@ -1665,7 +1679,7 @@ class Front:
         if not e.args or not isinstance(e.args[0], A.StrLit):
             self.err(e, "\\%s needs a literal format string first" % e.name)
         for need in ("bnew", "bps", "bpn", "bpf", "bpx", "bpc", "bpb",
-                     "bstr", "bfree", "wr", "bpu"):
+                     "bstr", "bfree", "wr", "bpu", "bpcs"):
             if need not in self.fns:
                 self.err(e, "\\%s needs <<\"heap.vibe\"" % e.name)
         buf_t = self.types["Buf"]
@@ -1736,6 +1750,10 @@ class Front:
             elif spec == "x":
                 if t.kind not in ("int", "ptr"):
                     self.err(e, "{x} needs an integer, got %s" % t)
+                if t.kind == "int" and t.size < 8:
+                    w = f.vreg()
+                    f.emit("cvt", w, v, t, {1: U8, 2: U16, 4: U32}[t.size])
+                    v = w
                 call("bpx", bp, (v, U64))
             elif spec == "c":
                 call("bpc", bp, (v, U8))
@@ -1751,9 +1769,7 @@ class Front:
                         v = w
                     call("bpf", bp, (v, F64), (dp, S64))
                 elif t.kind == "ptr" and t.to == U8:
-                    n = f.vreg()
-                    f.emit("call", n, "ln", [v], [False], False)
-                    call("bpb", bp, (v, t), (n, S64))
+                    call("bpcs", bp, (v, t))
                 elif t.kind == "ptr":
                     call("bpx", bp, (v, U64))
                 elif t.kind == "int" and not t.signed and t.size == 8:
@@ -2042,16 +2058,37 @@ class Front:
         if name in self.tbind or (name not in self.fns
                                   and name not in self.tfns):
             return None
-        bv, bt = self.rval(c.base, None)
+        # the receiver is lowered exactly once: as a place when it is one
+        # (so its address is available), otherwise as a value
+        placeable = isinstance(c.base, (A.Ident, A.Index, A.Field, A.Deref))
+        if placeable:
+            try:
+                ba, bt = self.lval(c.base)
+                is_place = True
+            except CheckError:
+                is_place = False
+                ba = None
+        else:
+            is_place = False
+        if not is_place:
+            bv, bt = self.rval(c.base, None)
         st = bt.to if bt.kind == "ptr" else bt
         if st.kind == "struct" and st.field(name) is not None:
-            # a field holding a function pointer: leave it to the caller
-            # (bv is lost, so re-lower there; the base is side-effect free
-            # in practice, but be safe and refuse when it is a call)
+            # a field holding a function pointer: leave it to the caller,
+            # which lowers the receiver again; refuse if that would repeat
+            # a side effect
             if has_side_effects(c.base):
-                self.err(e, "%s.%s is a field; bind the receiver first" % (
-                    c.base, name))
+                self.err(e, "'.%s' here is a field holding a function; bind "
+                            "the receiver to a name first" % name)
             return None
+        if is_place:
+            if bt.is_agg:
+                bv = ba           # an aggregate value is its address
+            else:
+                bv = self.f.vreg(bt.kind == "float")
+                self.f.emit("load", bv, ba, bt.size,
+                            bt.kind == "int" and bt.signed,
+                            bt.kind == "float")
         if name in self.fns:
             p0 = self.fns[name].params[0] if self.fns[name].params else None
             want_ptr = p0 is not None and p0.kind == "ptr"
@@ -2062,9 +2099,11 @@ class Front:
             if bt.is_agg:
                 # an aggregate value already is its address
                 bv, bt = bv, PtrT(bt)
+            elif is_place:
+                bv, bt = ba, PtrT(bt)
             else:
-                bv, bt2 = self.lval(c.base)
-                bt = PtrT(bt2)
+                self.err(e, "%s wants the address of its receiver, but this "
+                            "receiver is a value" % name)
         elif not want_ptr and bt.kind == "ptr" and bt.to.is_agg:
             # a pointer to a struct passed where the struct is expected:
             # the address is the value

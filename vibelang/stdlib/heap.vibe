@@ -171,28 +171,76 @@ $~ hlock = 0
 
 ; append a float rounded to dp decimal places
 @ bpf (b *%Buf, x f64, dp s64) v {
+  ? x != x {
+    bps(b, "nan")
+    ^
+  }
   $~ v = x
   ? v < 0.0 {
     bpc(b, `-)
     v = -v
   }
-  ? dp <= 0 {
-    bpn(b, s64(v + 0.5))
+  ? v == (1.0 / 0.0) {
+    bps(b, "inf")
     ^
   }
-  $~ scale = 1
+  ? dp < 0 {
+    dp = 0
+  }
+  ? dp > 17 {
+    dp = 17
+  }
+  ; round at the last place asked for
+  $~ half = 0.5
   * k 0 dp {
-    scale *= 10
+    half /= 10.0
   }
-  $ scaled = s64((v * f64(scale)) + 0.5)
-  bpn(b, scaled / scale)
-  bpc(b, `.)
-  $ frac = scaled % scale
-  $~ d = scale / 10
-  * d > 0 {
-    bpc(b, u8((frac / d) % 10) + `0)
-    d /= 10
+  v += half
+  ; integer part: through s64 when it fits, digit by digit otherwise
+  $~ frac = 0.0
+  ? v < 1.0e18 {
+    $ ip = s64(v)
+    bpu(b, u64(ip))
+    frac = v - f64(ip)
+  } : {
+    ; too big for s64: mantissa and a decimal exponent, e.g. 1.5e+300
+    $~ p10 = 1.0
+    $~ ex = 0
+    * (p10 * 10.0) <= v {
+      p10 *= 10.0
+      ex += 1
+    }
+    $~ m = v / p10
+    ? (m + half) >= 10.0 {
+      m /= 10.0
+      ex += 1
+    }
+    bpf(b, m, dp)
+    bps(b, "e+")
+    bpn(b, ex)
+    ^
   }
+  ? dp > 0 {
+    bpc(b, `.)
+    * k 0 dp {
+      frac *= 10.0
+      $~ d = s64(frac)
+      ? d > 9 {
+        d = 9
+      }
+      bpc(b, u8(d) + `0)
+      frac -= f64(d)
+    }
+  }
+}
+
+; append a NUL-terminated C string; a null pointer prints as (null)
+@ bpcs (b *%Buf, p *u8) v {
+  ? p == *u8(0) {
+    bps(b, "(null)")
+    ^
+  }
+  bpb(b, p, ln(p))
 }
 
 ; append an unsigned decimal
@@ -345,6 +393,9 @@ $~ hlock = 0
 @ mgrow<V> (m *%Map<V>) v {
   $ old %Map<V> = m'
   $~ c = old.cap * 2
+  ? (old.n * 4) < old.cap {
+    c = old.cap        ; mostly tombstones: rehash at the same size
+  }
   ? c < 16 {
     c = 16
   }
@@ -458,6 +509,9 @@ $~ hlock = 0
 @ igrow<V> (m *%IMap<V>) v {
   $ old %IMap<V> = m'
   $~ c = old.cap * 2
+  ? (old.n * 4) < old.cap {
+    c = old.cap
+  }
   ? c < 16 {
     c = 16
   }
