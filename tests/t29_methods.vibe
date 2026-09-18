@@ -1,0 +1,61 @@
+; method syntax: x.f(a) calls f(x, a) or f(&x, a)
+; out: 3 30
+; out: 7
+; out: 6
+; out: 10
+<<"heap.vibe"
+
+%Vec2<T> { p *T, n s64, cap s64 }
+
+@ gpush<T> (w *%Vec2<T>, x T) v {
+  ? w.n == w.cap {
+    $~ c = w.cap * 2
+    ? c < 4 {
+      c = 4
+    }
+    w.p = *T(renew(*u8(w.p), c * #T))
+    w.cap = c
+  }
+  w.p[w.n] = x
+  w.n += 1
+}
+
+@ glast<T> (w *%Vec2<T>) T {
+  ^ w.p[w.n - 1]
+}
+
+%Pt { x s64, y s64 }
+
+@ sum (p %Pt) s64 {
+  ^ p.x + p.y
+}
+
+@ scale (p *%Pt, k s64) v {
+  p.x *= k
+  p.y *= k
+}
+
+@ dbl (x s64) s64 {
+  ^ x * 2
+}
+
+@! () s64 {
+  $~ a %Vec2<s64> = %Vec2{ p: *s64(0), n: 0, cap: 0 }
+  a.gpush(10)
+  a.gpush(20)
+  a.gpush(30)
+  pn(a.n)
+  pc(` )
+  pnl(a.glast())
+  $~ p %Pt = %Pt{ x: 3, y: 4 }
+  pnl(p.sum())
+  $ pp *%Pt = &p
+  pnl(pp.sum() - 1)
+  p.scale(2)
+  pnl(pp.sum() - 4)
+  $ five = 5
+  ? five.dbl() == 10 {
+    ^ 0
+  }
+  ^ 1
+}

@@ -20,6 +20,19 @@ class CheckError(Exception):
     pass
 
 
+def has_side_effects(e):
+    if isinstance(e, (A.Call, A.CallP, A.Syscall, A.Intrinsic)):
+        return True
+    for f in getattr(e, "__slots__", ()):
+        x = getattr(e, f, None)
+        if isinstance(x, A.Node) and has_side_effects(x):
+            return True
+        if isinstance(x, list) and any(
+                isinstance(y, A.Node) and has_side_effects(y) for y in x):
+            return True
+    return False
+
+
 INT_BIN = {"+", "-", "*", "/", "%", "&", "|", "^", "<<", ">>"}
 CMP = {"==", "!=", "<", ">", "<=", ">="}
 FLT_BIN = {"+", "-", "*", "/"}
@@ -260,10 +273,10 @@ class Front:
                 self.unify(node, a, b, tparams, bind)
             self.unify(node, tast.ret, ty.ret, tparams, bind)
 
-    def generic_call(self, e, want):
+    def generic_call(self, e, want, pre=None):
         fname, d = self.tfns[e.name]
         bind = {}
-        pre = {}
+        pre = dict(pre or {})
         if e.targs:
             if len(e.targs) != len(d.tparams):
                 self.err(e, "%s takes %d type argument(s), got %d"
@@ -274,7 +287,9 @@ class Front:
                 self.err(e, "%s takes %d argument(s), got %d"
                          % (e.name, len(d.params), len(e.args)))
             for k, (a, (_, ptast)) in enumerate(zip(e.args, d.params)):
-                if not self.is_lit(a):
+                if k in pre:
+                    self.unify(e, ptast, pre[k][1], d.tparams, bind)
+                elif not self.is_lit(a):
                     pre[k] = self.rval(a, None)
                     self.unify(e, ptast, pre[k][1], d.tparams, bind)
             if want is not None:
@@ -1347,6 +1362,9 @@ class Front:
             return self.lower_call(e, want)
 
         if isinstance(e, A.CallP):
+            m = self.method_call(e, want)
+            if m is not None:
+                return m
             fv, ft = self.rval(e.callee, None)
             if ft.kind != "fn":
                 self.err(e, "cannot call a value of type %s" % ft)
@@ -1737,7 +1755,7 @@ class Front:
                     A.TName(e.name, line=e.line, col=e.col), e.args[0],
                     line=e.line, col=e.col), want)
             if e.name in self.tfns:
-                return self.generic_call(e, want)
+                return self.generic_call(e, want, pre)
             name = e.name
         sig = self.fns.get(name)
         if sig is None:
@@ -1803,6 +1821,48 @@ class Front:
             return d, sig.ret
         return d, sig.ret
 
+
+    def method_call(self, e, want):
+        """x.f(a) is f(x, a) when x has no field f but a function f exists.
+        The receiver is passed by address when f's first parameter is a
+        pointer, so `v.push(3)` reaches `@ push (v *%Vec, x s64)`."""
+        c = e.callee
+        if not isinstance(c, A.Field):
+            return None
+        name = c.name
+        if name in self.tbind or (name not in self.fns
+                                  and name not in self.tfns):
+            return None
+        bv, bt = self.rval(c.base, None)
+        st = bt.to if bt.kind == "ptr" else bt
+        if st.kind == "struct" and st.field(name) is not None:
+            # a field holding a function pointer: leave it to the caller
+            # (bv is lost, so re-lower there; the base is side-effect free
+            # in practice, but be safe and refuse when it is a call)
+            if has_side_effects(c.base):
+                self.err(e, "%s.%s is a field; bind the receiver first" % (
+                    c.base, name))
+            return None
+        if name in self.fns:
+            p0 = self.fns[name].params[0] if self.fns[name].params else None
+            want_ptr = p0 is not None and p0.kind == "ptr"
+        else:
+            _, d = self.tfns[name]
+            want_ptr = bool(d.params) and isinstance(d.params[0][1], A.TPtr)
+        if want_ptr and bt.kind != "ptr":
+            if bt.is_agg:
+                # an aggregate value already is its address
+                bv, bt = bv, PtrT(bt)
+            else:
+                bv, bt2 = self.lval(c.base)
+                bt = PtrT(bt2)
+        elif not want_ptr and bt.kind == "ptr" and bt.to.is_agg:
+            # a pointer to a struct passed where the struct is expected:
+            # the address is the value
+            bt = bt.to
+        call = A.Call(name, [c.base] + list(e.args), None,
+                      line=e.line, col=e.col)
+        return self.lower_call(call, want, pre={0: (bv, bt)})
 
     def lower_indirect(self, e, fv, sig, argexprs):
         """Call through a function pointer. Same ABI as a direct call."""
