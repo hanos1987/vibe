@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Disassemble the code emitted for one VIBE function.
 
-  python3 tools/dis.py prog.vibe fib
+  python3 tools/disasm.py prog.vibe fib
 
 Uses objdump on the raw code bytes; VIBE binaries carry no section headers.
 """
