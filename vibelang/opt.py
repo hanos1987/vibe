@@ -375,6 +375,133 @@ def fuse_branches(f):
     return changed
 
 
+def dominators(blocks):
+    """idom[b] for each block index (block 0 is the entry)."""
+    n = len(blocks)
+    preds = [[] for _ in range(n)]
+    for i, b in enumerate(blocks):
+        for sidx in b.succ:
+            preds[sidx].append(i)
+    # reverse postorder
+    seen = [False] * n
+    order = []
+
+    def dfs(i):
+        seen[i] = True
+        for sidx in blocks[i].succ:
+            if not seen[sidx]:
+                dfs(sidx)
+        order.append(i)
+    import sys
+    sys.setrecursionlimit(max(10000, n * 4))
+    dfs(0)
+    rpo = list(reversed(order))
+    pos = {b: k for k, b in enumerate(rpo)}
+    idom = [None] * n
+    idom[0] = 0
+    changed = True
+    while changed:
+        changed = False
+        for b in rpo[1:]:
+            cands = [p for p in preds[b] if idom[p] is not None]
+            if not cands:
+                continue
+            new = cands[0]
+            for p in cands[1:]:
+                x, y = p, new
+                while x != y:
+                    while pos[x] > pos[y]:
+                        x = idom[x]
+                    while pos[y] > pos[x]:
+                        y = idom[y]
+                new = x
+            if idom[b] != new:
+                idom[b] = new
+                changed = True
+    return idom
+
+
+def _cse_key(ins):
+    op = ins.op
+    if op == "bin":
+        return ("bin", ins.b, ins.c, ins.d, str(ins.e))
+    if op == "bini":
+        return ("bini", ins.b, ins.c, ins.d, str(ins.e))
+    if op == "un":
+        return ("un", ins.b, ins.c, str(ins.d))
+    if op == "cvt":
+        return ("cvt", ins.b, str(ins.c), str(ins.d))
+    if op == "const":
+        return ("const", ins.b)
+    if op == "fconst":
+        return ("fconst", ins.b, ins.c)
+    if op in ("leag", "leas", "leaf"):
+        return (op, ins.b)
+    if op == "lea":
+        return ("lea", id(ins.b))
+    if op in ("cmp", "fcmp"):
+        return (op, ins.b, ins.c, ins.d, ins.e)
+    if op == "cmpi":
+        return (op, ins.b, ins.c, ins.d, ins.e)
+    if op == "fbin":
+        return (op, ins.b, ins.c, ins.d, ins.e)
+    if op == "fun":
+        return (op, ins.b, ins.c, ins.d)
+    return None
+
+
+def cse(f):
+    """Common subexpression elimination over pure operations whose operands
+    are defined exactly once (so their value never changes), reusing a
+    result computed in a dominating block."""
+    from .regalloc import build_blocks
+    cnt = def_counts(f)
+    blocks = build_blocks(f)
+    if not blocks:
+        return False
+    idom = dominators(blocks)
+    tables = [None] * len(blocks)
+    mapping = {}
+    drop = set()
+    # blocks in index order: the entry first; a block's idom always has a
+    # smaller index in this linear layout only when it precedes it, so
+    # process in a dominator-tree preorder instead
+    children = [[] for _ in blocks]
+    for b in range(1, len(blocks)):
+        if idom[b] is not None:
+            children[idom[b]].append(b)
+    stack = [0]
+    tables[0] = {}
+    while stack:
+        b = stack.pop()
+        table = tables[b]
+        for k in range(blocks[b].start, blocks[b].end + 1):
+            ins = f.ins[k]
+            key = _cse_key(ins)
+            if key is None:
+                continue
+            d = defs_of(ins)[0]
+            if cnt.get(d, 0) != 1:
+                continue
+            if any(cnt.get(u, 0) != 1 for u in uses_of(ins)):
+                continue
+            prev = table.get(key)
+            if prev is not None:
+                mapping[d] = prev
+                drop.add(k)
+            else:
+                table[key] = d
+        for c in children[b]:
+            tables[c] = dict(table)
+            stack.append(c)
+    if not mapping:
+        return False
+    f.ins = [x for k, x in enumerate(f.ins) if k not in drop]
+    for ins in f.ins:
+        replace_uses(ins, mapping)
+    return True
+
+
 def coalesce_movs(f):
     """`op d, ...` immediately followed by `mov v, d`, with d used nowhere
     else: write the result straight into v. This is the shape every loop
@@ -669,6 +796,7 @@ def optimise(prog):
             c |= use_immediates(f)
             c |= fuse_index(f)
             c |= dce(f)
+            c |= cse(f)
             c |= coalesce_movs(f)
             c |= fuse_branches(f)
             c |= clean_labels(f)
