@@ -35,7 +35,7 @@ def build_elf(code, rodata, data, entry_off, symbols=()):
     ro_off = align_up(code_off + len(code), 16)
     text_end = ro_off + len(rodata)
 
-    data_off = align_up(text_end, PAGE)
+    data_off = text_end          # any offset congruent to the vaddr mod PAGE
     text_vaddr = BASE
     data_vaddr = BASE + 0x200000 + data_off
 
@@ -134,7 +134,7 @@ def plan_layout(code_len, rodata_len):
     code_off = align_up(hdr_size, 16)
     ro_off = align_up(code_off + code_len, 16)
     text_end = ro_off + rodata_len
-    data_off = align_up(text_end, PAGE)
+    data_off = text_end          # any offset congruent to the vaddr mod PAGE
     return {
         "code_off": code_off,
         "code_vaddr": BASE + code_off,
