@@ -937,6 +937,37 @@ class CodeGen:
             return
         if ft.kind == "float":
             x = self.rdf(s, XT0)
+            if tt.kind == "int" and not tt.signed and tt.size == 8:
+                # u64: values from 2^63 up are converted shifted down by 2^63
+                if ft.bits == 32:
+                    a.cvtss2sd(XT2, x)
+                    x = XT2
+                small = ".u2f%d_s" % len(a.buf)
+                end = ".u2f%d_e" % len(a.buf)
+                bad = ".u2f%d_b" % len(a.buf)
+                a.mov_ri(RAX, 0x43F0000000000000)      # 2^64 as f64
+                a.movq_xr(XT1, RAX)
+                a.ucomis(x, XT1, 64)
+                a.jcc("ae", bad)                       # too big, or NaN
+                a.mov_ri(RAX, 0x43E0000000000000)      # 2^63 as f64
+                a.movq_xr(XT1, RAX)
+                a.ucomis(x, XT1, 64)
+                a.jcc("b", small)
+                if x != XT2:
+                    a.movsd_load(XT2, x, 64)
+                a.fbin("-", XT2, XT1, 64)
+                a.cvttsd2si(RAX, XT2, 64)
+                a.mov_ri(R10, -(1 << 63))
+                a.alu_rr("^", RAX, R10)
+                a.jmp(end)
+                a.label(bad)
+                a.mov_ri(RAX, -(1 << 63))
+                a.jmp(end)
+                a.label(small)
+                a.cvttsd2si(RAX, x, 64)
+                a.label(end)
+                self.done(d, RAX)
+                return
             r = self.wreg(d, RAX)
             a.cvttsd2si(r, x, ft.bits)
             self.narrow(r, tt)
@@ -945,6 +976,26 @@ class CodeGen:
         if tt.kind == "float":
             r = self.rd(s, RAX)
             t = self.wregf(d, XT0)
+            if ft.kind == "int" and not ft.signed and ft.size == 8:
+                # u64 with the top bit set: halve (keeping the sticky low
+                # bit for correct rounding), convert, double
+                a.mov_rr(RAX, r)
+                a.test_rr(RAX, RAX)
+                pos = ".f2u%d_p" % len(a.buf)
+                end = ".f2u%d_e" % len(a.buf)
+                a.jcc("ns", pos)
+                a.mov_rr(R10, RAX)
+                a.shift_imm(">>u", R10, 1)
+                a.alu_ri("&", RAX, 1)
+                a.alu_rr("|", R10, RAX)
+                a.cvtsi2sd(t, R10, tt.bits)
+                a.fbin("+", t, t, tt.bits)
+                a.jmp(end)
+                a.label(pos)
+                a.cvtsi2sd(t, RAX, tt.bits)
+                a.label(end)
+                self.donef(d, t)
+                return
             a.cvtsi2sd(t, r, tt.bits)
             self.donef(d, t)
             return
