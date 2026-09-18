@@ -1,0 +1,21 @@
+; \fmt, \print and \eprint
+; out: x=42 y=-7 f=2.500000 s=hi c=A hex=ff {lit} big=18446744073709551615
+; out: pi~3.14 ok=1 p=world
+; out: len=15
+<<"heap.vibe"
+
+@! () s64 {
+  $ x = 42
+  $ y s32 = -7
+  $ f = 2.5
+  $ big u64 = 18446744073709551615
+  \print("x={} y={} f={} s={} c={c} hex={x} {{lit}} big={}\n", x, y, f, "hi", `A, 255, big)
+  $ ok = x > 1
+  $ cs *u8 = "world".p
+  \print("pi~{.2} ok={} p={}\n", 3.14159, ok, cs)
+  $ s = \fmt("{}-{}-{}", 1, 2, "three")
+  \eprint("to stderr {}\n", s)
+  \print("len={}\n", s.n + 6)
+  del(s.p)
+  ^ 0
+}

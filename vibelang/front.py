@@ -1565,7 +1565,8 @@ class Front:
     # name -> number of arguments
     INTRINSICS = {"sqrt": 1, "bits": 1, "fbits": 1, "popcnt": 1, "clz": 1,
                   "ctz": 1, "bswap": 1, "rdtsc": 0, "cas": 3, "xadd": 2,
-                  "pause": 0, "clone": 4, "load": 1, "store": 2}
+                  "pause": 0, "clone": 4, "load": 1, "store": 2,
+                  "fmt": -1, "print": -1, "eprint": -1}
 
     def lower_intrinsic(self, e, want):
         f = self.f
@@ -1573,9 +1574,11 @@ class Front:
         if n is None:
             self.err(e, "unknown intrinsic \\%s (have: %s)"
                      % (e.name, ", ".join(sorted(self.INTRINSICS))))
+        name = e.name
+        if n == -1:
+            return self.lower_format(e)
         if len(e.args) != n:
             self.err(e, "\\%s takes %d argument(s)" % (e.name, n))
-        name = e.name
 
         def word(t):
             return (t.kind in ("int", "ptr")) and t.size == 8
@@ -1650,6 +1653,137 @@ class Front:
         d = f.vreg()
         f.emit("intr", d, name, [p] + vals)
         return d, (BOOL if name == "cas" else pt.to)
+
+    def lower_format(self, e):
+        """\\fmt("x={} y={.2}", x, y) builds a %Str on the heap;
+        \\print / \\eprint write it to stdout / stderr instead.
+
+        {}   any value, by its type      {.N}  float with N decimals
+        {x}  integer in hex              {c}   u8 as a character
+        {{ and }} are literal braces."""
+        f = self.f
+        if not e.args or not isinstance(e.args[0], A.StrLit):
+            self.err(e, "\\%s needs a literal format string first" % e.name)
+        for need in ("bnew", "bps", "bpn", "bpf", "bpx", "bpc", "bpb",
+                     "bstr", "bfree", "wr", "bpu"):
+            if need not in self.fns:
+                self.err(e, "\\%s needs <<\"heap.vibe\"" % e.name)
+        buf_t = self.types["Buf"]
+        text = e.args[0].v.decode("utf-8")
+        args = list(e.args[1:])
+        # the buffer
+        slot = f.slot(buf_t.size, buf_t.align, "fmt")
+        b = f.vreg()
+        f.emit("lea", b, slot)
+        z = f.vreg()
+        f.emit("const", z, 0)
+        f.emit("memzero", b, buf_t.size)
+        bp = (b, PtrT(buf_t))
+        dummy = A.IntLit(0, line=e.line, col=e.col)
+
+        def call(fn, *vals):
+            node = A.Call(fn, [dummy] * len(vals), None,
+                          line=e.line, col=e.col)
+            pre = dict((k, v) for k, v in enumerate(vals))
+            return self.lower_call(node, None, pre=pre)
+
+        def lit(txt):
+            if txt:
+                lbl = self.prog.add_ro(txt.encode("utf-8") + b"\0")
+                p = f.vreg()
+                f.emit("leas", p, lbl)
+                n = f.vreg()
+                f.emit("const", n, len(txt.encode("utf-8")))
+                call("bpb", bp, (p, PtrT(U8)), (n, S64))
+
+        i = 0
+        chunk = ""
+        while i < len(text):
+            ch = text[i]
+            if ch == "{" and text[i + 1:i + 2] == "{":
+                chunk += "{"
+                i += 2
+                continue
+            if ch == "}" and text[i + 1:i + 2] == "}":
+                chunk += "}"
+                i += 2
+                continue
+            if ch != "{":
+                chunk += ch
+                i += 1
+                continue
+            j = text.find("}", i)
+            if j < 0:
+                self.err(e, "unclosed { in format string")
+            spec = text[i + 1:j]
+            i = j + 1
+            lit(chunk)
+            chunk = ""
+            if not args:
+                self.err(e, "format string has more {} than arguments")
+            a = args.pop(0)
+            v, t = self.rval(a, None)
+            if spec.startswith("."):
+                if t.kind != "float":
+                    self.err(e, "{%s} needs a float, got %s" % (spec, t))
+                dp = f.vreg()
+                f.emit("const", dp, int(spec[1:] or 6))
+                if t.bits == 32:
+                    w = f.vreg(True)
+                    f.emit("cvt", w, v, t, F64)
+                    v = w
+                call("bpf", bp, (v, F64), (dp, S64))
+            elif spec == "x":
+                if t.kind not in ("int", "ptr"):
+                    self.err(e, "{x} needs an integer, got %s" % t)
+                call("bpx", bp, (v, U64))
+            elif spec == "c":
+                call("bpc", bp, (v, U8))
+            elif spec == "":
+                if t == self.str_t:
+                    call("bps", bp, (v, t))
+                elif t.kind == "float":
+                    dp = f.vreg()
+                    f.emit("const", dp, 6)
+                    if t.bits == 32:
+                        w = f.vreg(True)
+                        f.emit("cvt", w, v, t, F64)
+                        v = w
+                    call("bpf", bp, (v, F64), (dp, S64))
+                elif t.kind == "ptr" and t.to == U8:
+                    n = f.vreg()
+                    f.emit("call", n, "ln", [v], [False], False)
+                    call("bpb", bp, (v, t), (n, S64))
+                elif t.kind == "ptr":
+                    call("bpx", bp, (v, U64))
+                elif t.kind == "int" and not t.signed and t.size == 8:
+                    call("bpu", bp, (v, U64))
+                elif t.kind in ("int", "bool"):
+                    call("bpn", bp, (v, S64))
+                else:
+                    self.err(e, "cannot format a %s" % t)
+            else:
+                self.err(e, "unknown format {%s}" % spec)
+        lit(chunk)
+        if args:
+            self.err(e, "format string has fewer {} than arguments")
+        if e.name == "fmt":
+            return call("bstr", bp)
+        fd = f.vreg()
+        f.emit("const", fd, 1 if e.name == "print" else 2)
+        pv = f.vreg()
+        f.emit("load", pv, b, 8, False, False)
+        o8 = f.vreg()
+        f.emit("const", o8, 8)
+        na = f.vreg()
+        f.emit("bin", na, "+", b, o8, U64)
+        nv = f.vreg()
+        f.emit("load", nv, na, 8, True, False)
+        r = f.vreg()
+        f.emit("call", r, "wr", [fd, pv, nv], [False] * 3, False)
+        f.emit("call", None, "bfree", [b], [False], False)
+        f.calls = True
+        return None, VOID
 
     def lower_cast(self, e, want):
         f = self.f

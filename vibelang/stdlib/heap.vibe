@@ -195,6 +195,23 @@ $~ hlock s64 = 0
   }
 }
 
+; append an unsigned decimal
+@ bpu (b *%Buf, x u64) v {
+  $~ t [24]u8
+  $~ i = 24
+  $~ u = x
+  ? u == 0 {
+    i -= 1
+    t[i] = `0
+  }
+  * u > 0 {
+    i -= 1
+    t[i] = u8(u % 10) + `0
+    u /= 10
+  }
+  bpb(b, &t[i], 24 - i)
+}
+
 ; append lowercase hex
 @ bpx (b *%Buf, x u64) v {
   $~ t [16]u8
