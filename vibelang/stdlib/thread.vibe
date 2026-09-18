@@ -22,10 +22,13 @@ $$ TSTACK s64 = 1048576
   ? m == *u8(0) {
     ^ *%Thread(0)
   }
-  ; the handle lives at the base of the stack mapping, far below the top
+  ; the handle lives at the base of the stack mapping, far below the top;
+  ; the page above it is made inaccessible, so a stack overflow traps
+  ; instead of silently corrupting the handle or the neighbouring memory
   $ t *%Thread = *%Thread(m)
   t.stk = m
   t.tid = 1
+  \10(m + 4096, 4096, 0)
   $ r s64 = \clone(f, arg, m + TSTACK, &t.tid)
   ? r < 0 {
     mu(m, TSTACK)
@@ -42,4 +45,45 @@ $$ TSTACK s64 = 1048576
     cur = \load(&t.tid)
   }
   mu(t.stk, TSTACK)
+}
+
+; ---- sleeping lock -------------------------------------------------------------
+;
+; A %Lock is a spin lock that hands the CPU back after a few tries: waiters
+; sleep on a futex until release wakes one. Use it for anything longer than
+; a few instructions; lock/unlock from std.vibe are cheaper when the
+; critical section is tiny and never contended for long.
+
+%Lock { s s64 }
+
+; set the lock word to 2 (contended) and return what it was
+@ lswap2 (l *%Lock) s64 {
+  * 1 {
+    $ old = \load(&l.s)
+    ? \cas(&l.s, old, 2) {
+      ^ old
+    }
+  }
+}
+
+@ acquire (l *%Lock) v {
+  * i 0 64 {
+    ? \cas(&l.s, 0, 1) {
+      ^
+    }
+    \pause()
+  }
+  ; contended: 0 free, 1 held, 2 held with waiters
+  $~ c = lswap2(l)
+  * c != 0 {
+    \202(&l.s, 0, 2, 0)
+    c = lswap2(l)
+  }
+}
+
+@ release (l *%Lock) v {
+  ? \xadd(&l.s, -1) != 1 {
+    \store(&l.s, 0)
+    \202(&l.s, 1, 1, 0)
+  }
 }

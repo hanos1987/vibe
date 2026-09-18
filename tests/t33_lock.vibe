@@ -1,0 +1,26 @@
+; futex-backed %Lock under contention; guard page below each thread stack
+; out: 800000
+<<"thread.vibe"
+
+$~ total = 0
+$~ lk %Lock = %Lock{ s: 0 }
+
+@ worker (n s64) v {
+  * i 0 n {
+    acquire(&lk)
+    total += 1
+    release(&lk)
+  }
+}
+
+@! () s64 {
+  $~ ts [8]*%Thread
+  * k 0 8 {
+    ts[k] = spawn(@worker, 100000)
+  }
+  * k 0 8 {
+    join(ts[k])
+  }
+  pnl(total)
+  ^ 0
+}

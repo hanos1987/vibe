@@ -234,11 +234,25 @@ class Parser:
         const = (t.val == "$$")
         mut = (t.val == "$~")
         name = self.expect_id("name")
-        ty = self.parse_type()
+        ty = None
+        if not self.at("="):
+            ty = self.parse_type()
         init = None
         if self.eat("="):
             init = self.parse_expr()
+        elif ty is None:
+            self.err("a global needs a type, a value, or both")
         self.end_stmt()
+        if ty is None:
+            # `$~ total = 0`: an integer literal is s64, a float f64
+            lit = init.a if isinstance(init, A.Un) else init
+            if isinstance(lit, A.FltLit):
+                ty = A.TName("f64", line=t.line, col=t.col)
+            elif isinstance(lit, A.IntLit):
+                ty = A.TName("s64", line=t.line, col=t.col)
+            else:
+                self.err("a global initialised with an expression needs "
+                         "its type written out")
         return A.GlobalDecl(name, ty, init, mut, const, line=t.line, col=t.col)
 
     # -- types ---------------------------------------------------------------
