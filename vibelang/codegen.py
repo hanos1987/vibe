@@ -502,6 +502,8 @@ class CodeGen:
             x = self.rdf(ins.c, XT0)
             y = self.rdf(ins.d, XT1)
             t = self.wregf(d, XT0)
+            if t == y and o in ("+", "*"):
+                x, y = y, x          # commutative: compute into y's register
             if t == y:
                 t = XT0
                 if t == y:

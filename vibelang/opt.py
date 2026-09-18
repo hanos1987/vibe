@@ -375,6 +375,39 @@ def fuse_branches(f):
     return changed
 
 
+def coalesce_movs(f):
+    """`op d, ...` immediately followed by `mov v, d`, with d used nowhere
+    else: write the result straight into v. This is the shape every loop
+    counter update has (`i = i + 1`)."""
+    uses = {}
+    for ins in f.ins:
+        for u in uses_of(ins):
+            uses[u] = uses.get(u, 0) + 1
+    out = []
+    changed = False
+    i = 0
+    n = len(f.ins)
+    while i < n:
+        cur = f.ins[i]
+        nxt = f.ins[i + 1] if i + 1 < n else None
+        if (nxt is not None and nxt.op == "mov" and cur.op in COALESCE
+                and defs_of(cur) == [nxt.b] and uses.get(nxt.b, 0) == 1
+                and nxt.a != nxt.b):
+            cur.a = nxt.a
+            out.append(cur)
+            i += 2
+            changed = True
+            continue
+        out.append(cur)
+        i += 1
+    f.ins = out
+    return changed
+
+
+COALESCE = {"bin", "bini", "un", "cvt", "fbin", "fun", "load", "loadd",
+            "loadx", "const", "fconst", "lea", "leag", "leas", "leaf"}
+
+
 def dce(f):
     changed = False
     while True:
@@ -636,6 +669,7 @@ def optimise(prog):
             c |= use_immediates(f)
             c |= fuse_index(f)
             c |= dce(f)
+            c |= coalesce_movs(f)
             c |= fuse_branches(f)
             c |= clean_labels(f)
             c |= licm(f)

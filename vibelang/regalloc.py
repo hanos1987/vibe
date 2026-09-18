@@ -55,6 +55,8 @@ def build_hints(f):
         elif ins.op in ("un", "cvt"):
             src = ins.c if ins.op == "un" else ins.b
             same.setdefault(ins.a, src)
+        elif ins.op in ("fbin", "fun"):
+            same.setdefault(ins.a, ins.c)
         elif ins.op in ("call", "calli"):
             k = 0
             for v, isf in zip(ins.c, ins.d):
@@ -254,10 +256,25 @@ def allocate(f):
                 loc[v] = ("m",)
                 continue
             pool = [r for r in free_xmm]
-            if not pool:
+            # reuse the source's register when the source dies here, so the
+            # two-operand SSE forms need no copy
+            hint = None
+            s_src = same.get(v)
+            if s_src is not None and loc.get(s_src, ("m",))[0] == "x":
+                cand = loc[s_src][1]
+                if cand in pool:
+                    hint = cand
+                elif end.get(s_src, -1) <= start[v]:
+                    for k2, (e2, v2, r2, f2) in enumerate(active):
+                        if v2 == s_src and r2 == cand:
+                            active.pop(k2)
+                            free_xmm.append(cand)
+                            hint = cand
+                            break
+            if hint is None and not pool:
                 loc[v] = ("m",)
                 continue
-            r = pool[0]
+            r = hint if hint is not None else pool[0]
             free_xmm.remove(r)
             loc[v] = ("x", r)
             active.append((end[v], v, r, True))
