@@ -62,6 +62,7 @@ class Front:
         self.tfns = {}          # generic function templates
         self.pending = []       # generic function instances to lower
         self.ninst = 0
+        self.fconstants = {}    # $$ float constants
         self.startup = []       # addresses to store into globals at entry
         self.relocs = []
         self.check = False      # --check: bounds and divide-by-zero traps
@@ -383,12 +384,23 @@ class Front:
                 if d.init is None:
                     self.err(d, "a $$ constant needs a value")
                 cv = self.const_eval(d.init)
+                if cv is None and isinstance(d.ty, A.TName) \
+                        and d.ty.name in ("f32", "f64"):
+                    cv = self.const_float(d.init)
                 if cv is None:
                     rest_c.append((fname, d))
                     continue
                 if d.name in self.constants or d.name in self.globals:
                     self.err(d, "global %r declared twice" % d.name)
                 ty = self.resolve(d.ty)
+                if ty.kind == "float":
+                    fv = self.const_float(d.init)
+                    if fv is None:
+                        self.err(d, "$$ %s needs a constant float value" % d.name)
+                    self.fconstants[d.name] = fv
+                    self.constants[d.name] = (ty, fv)
+                    progress = True
+                    continue
                 if ty.kind not in ("int", "bool", "ptr"):
                     self.err(d, "a $$ constant must be a scalar")
                 self.constants[d.name] = (ty, cv)
@@ -524,6 +536,24 @@ class Front:
         if isinstance(e, A.Un) and e.op == "-":
             inner = self.const_float(e.a)
             return None if inner is None else -inner
+        if isinstance(e, A.Cast):
+            # f32(1.5), f64(x): a cast of a constant is a constant
+            t = self.resolve(e.ty)
+            if t.kind == "float":
+                inner = self.const_float(e.e)
+                if inner is None:
+                    v = self.const_eval(e.e)
+                    inner = None if v is None else float(v)
+                if inner is not None and t.bits == 32:
+                    inner = struct.unpack("<f", struct.pack("<f", inner))[0]
+                return inner
+        if isinstance(e, A.Ident) and e.name in self.fconstants:
+            return self.fconstants[e.name]
+        if isinstance(e, A.Bin) and e.op in ("+", "-", "*", "/"):
+            x, y = self.const_float(e.a), self.const_float(e.b)
+            if x is None or y is None or (e.op == "/" and y == 0):
+                return None
+            return {"+": x + y, "-": x - y, "*": x * y, "/": x / y}[e.op]
         return None
 
     def const_eval(self, e):
@@ -531,7 +561,7 @@ class Front:
             return e.v
         if isinstance(e, A.Ident):
             c = self.constants.get(e.name)
-            return c[1] if c is not None else None
+            return c[1] if c is not None and c[0].kind != "float" else None
         if isinstance(e, A.SizeOf):
             if not self.type_ready(e.ty):
                 return None
@@ -1245,6 +1275,10 @@ class Front:
             if ent is None:
                 if e.name in self.constants:
                     cty, cv = self.constants[e.name]
+                    if cty.kind == "float":
+                        cvr = f.vreg(True)
+                        f.emit("fconst", cvr, cv, cty.bits)
+                        return cvr, cty
                     cvr = f.vreg()
                     f.emit("const", cvr, cv & 0xFFFFFFFFFFFFFFFF)
                     return cvr, cty

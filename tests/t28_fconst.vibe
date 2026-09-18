@@ -1,0 +1,20 @@
+; float constants: $$ floats, casts and arithmetic in initialisers
+; out: 1.50 6.28 0.50
+; out: 3.14
+<<"std.vibe"
+
+$$ HALF f64 = 0.5
+$$ TAU f64 = 2.0 * 3.14159
+$ g f32 = f32(1.5)
+$ tbl [2]f64 = [TAU, HALF]
+$~ pi f64 = TAU / 2.0
+
+@! () s64 {
+  pf(f64(g), 2)
+  pc(` )
+  pf(tbl[0], 2)
+  pc(` )
+  pfl(tbl[1], 2)
+  pfl(pi, 2)
+  ^ 0
+}
