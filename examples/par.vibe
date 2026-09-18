@@ -8,48 +8,48 @@
 $$ LIMIT s64 = 400000
 
 @ is_prime (x s64) b {
-  ? (x < 2) {
+  ? x < 2 {
     ^ 0
   }
-  ? (x < 4) {
+  ? x < 4 {
     ^ 1
   }
-  ? ((x % 2) == 0) {
+  ? (x % 2) == 0 {
     ^ 0
   }
-  $~ d s64 = 3
-  * ((d * d) <= x) {
-    ? ((x % d) == 0) {
+  $~ d = 3
+  * (d * d) <= x {
+    ? (x % d) == 0 {
       ^ 0
     }
-    d = (d + 2)
+    d += 2
   }
   ^ 1
 }
 
 @ count_range (lo s64, hi s64) s64 {
-  $~ n s64 = 0
+  $~ n = 0
   $~ i s64 = lo
-  * (i < hi) {
+  * i < hi {
     ? is_prime(i) {
-      n = (n + 1)
+      n += 1
     }
-    i = (i + 1)
+    i += 1
   }
   ^ n
 }
 
 @! () s64 {
-  $~ nproc s64 = 4
-  ? (argc() > 1) {
+  $~ nproc = 4
+  ? argc() > 1 {
     nproc = nat(arg(1))
   }
-  ? (nproc < 1) {
+  ? nproc < 1 {
     nproc = 1
   }
 
   $~ fds [2]s32
-  ? (pip(&fds[0]) < 0) {
+  ? pip(&fds[0]) < 0 {
     pe("par: pipe failed\n")
     ^ 1
   }
@@ -58,39 +58,39 @@ $$ LIMIT s64 = 400000
 
   $ t0 s64 = now_ns()
 
-  $~ k s64 = 0
-  * (k < nproc) {
-    ? (fork() == 0) {
+  $~ k = 0
+  * k < nproc {
+    ? fork() == 0 {
       $ span s64 = (LIMIT / nproc)
       $ lo s64 = (span * k)
       $~ hi s64 = (span * (k + 1))
-      ? (k == (nproc - 1)) {
+      ? k == (nproc - 1) {
         hi = LIMIT
       }
       $~ c s64 = count_range(lo, hi)
       wr(wfd, *u8(&c), 8)
       ex(0)
     }
-    k = (k + 1)
+    k += 1
   }
   fc(wfd)
 
-  $~ total s64 = 0
-  $~ got s64 = 0
-  * (got < nproc) {
-    $~ v s64 = 0
-    ? (rd(rfd, *u8(&v), 8) != 8) {
+  $~ total = 0
+  $~ got = 0
+  * got < nproc {
+    $~ v = 0
+    ? rd(rfd, *u8(&v), 8) != 8 {
       *<
     }
-    total = (total + v)
-    got = (got + 1)
+    total += v
+    got += 1
   }
   fc(rfd)
 
-  $~ w s64 = 0
-  * (w < nproc) {
+  $~ w = 0
+  * w < nproc {
     waitpid(-1)
-    w = (w + 1)
+    w += 1
   }
 
   $ ms s64 = ((now_ns() - t0) / 1000000)

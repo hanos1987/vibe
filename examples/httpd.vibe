@@ -22,16 +22,16 @@ $$ PORT s64 = 8080
 
 @! () s64 {
   $~ port s64 = PORT
-  ? (argc() > 1) {
+  ? argc() > 1 {
     port = nat(arg(1))
   }
-  $~ limit s64 = -1
-  ? (argc() > 2) {
+  $~ limit = -1
+  ? argc() > 2 {
     limit = nat(arg(2))
   }
 
   $ fd s64 = srv(port)
-  ? (fd < 0) {
+  ? fd < 0 {
     pe("httpd: cannot bind port ")
     pn(port)
     pe("\n")
@@ -40,14 +40,14 @@ $$ PORT s64 = 8080
   ps("httpd listening on port ")
   pnl(port)
 
-  $~ served s64 = 0
-  * ((limit < 0) || (served < limit)) {
+  $~ served = 0
+  * (limit < 0) || (served < limit) {
     $ c s64 = acc(fd)
-    ? (c < 0) {
+    ? c < 0 {
       *<
     }
     serve(c)
-    served = (served + 1)
+    served += 1
   }
   fc(fd)
   ^ 0

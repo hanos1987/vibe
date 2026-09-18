@@ -15,51 +15,51 @@
 
 $$ HCLASSES s64 = 16
 $~ hfree [16]*u8
-$~ hlock s64 = 0
+$~ hlock = 0
 
 @ new (n s64) *u8 {
   $ need s64 = (n + 16)
-  $~ k s64 = 0
-  $~ sz s64 = 32
-  * (sz < need) {
-    sz = (sz << 1)
-    k = (k + 1)
+  $~ k = 0
+  $~ sz = 32
+  * sz < need {
+    sz <<= 1
+    k += 1
   }
-  ? (k >= HCLASSES) {
+  ? k >= HCLASSES {
     $ big s64 = ((need + 4095) & -4096)
     $ q *u8 = mm(big)
-    ? (q == *u8(0)) {
+    ? q == *u8(0) {
       ^ q
     }
     $ qh *s64 = *s64(q)
     qh[0] = -big
-    ^ (q + 16)
+    ^ q + 16
   }
   lock(&hlock)
   $~ blk *u8 = hfree[k]
-  ? (blk != *u8(0)) {
+  ? blk != *u8(0) {
     $ nx *s64 = *s64((blk + 16))
     hfree[k] = *u8(nx[0])
   } : {
     blk = alloc(sz)
   }
   unlock(&hlock)
-  ? (blk == *u8(0)) {
+  ? blk == *u8(0) {
     ^ blk
   }
   $ h *s64 = *s64(blk)
   h[0] = k
-  ^ (blk + 16)
+  ^ blk + 16
 }
 
 @ del (p *u8) v {
-  ? (p == *u8(0)) {
+  ? p == *u8(0) {
     ^
   }
   $ blk *u8 = (p - 16)
   $ h *s64 = *s64(blk)
   $ k s64 = h[0]
-  ? (k < 0) {
+  ? k < 0 {
     mu(blk, -k)
     ^
   }
@@ -74,23 +74,23 @@ $~ hlock s64 = 0
 @ cap_of (p *u8) s64 {
   $ h *s64 = *s64((p - 16))
   $ k s64 = h[0]
-  ? (k < 0) {
-    ^ (-k - 16)
+  ? k < 0 {
+    ^ -k - 16
   }
-  ^ ((32 << k) - 16)
+  ^ (32 << k) - 16
 }
 
 ; resize, keeping the contents; renew(0, n) is new(n)
 @ renew (p *u8, n s64) *u8 {
-  ? (p == *u8(0)) {
+  ? p == *u8(0) {
     ^ new(n)
   }
   $ have s64 = cap_of(p)
-  ? (have >= n) {
+  ? have >= n {
     ^ p
   }
   $ q *u8 = new(n)
-  ? (q == *u8(0)) {
+  ? q == *u8(0) {
     ^ q
   }
   cp(q, p, have)
@@ -115,14 +115,14 @@ $~ hlock s64 = 0
 
 @ bneed (b *%Buf, extra s64) v {
   $ want s64 = ((b.n + extra) + 1)
-  ? (want <= b.cap) {
+  ? want <= b.cap {
     ^
   }
   $~ c s64 = (b.cap * 2)
-  ? (c < want) {
+  ? c < want {
     c = want
   }
-  ? (c < 64) {
+  ? c < 64 {
     c = 64
   }
   b.p = renew(b.p, c)
@@ -132,13 +132,13 @@ $~ hlock s64 = 0
 @ bpc (b *%Buf, c u8) v {
   bneed(b, 1)
   b.p[b.n] = c
-  b.n = (b.n + 1)
+  b.n += 1
 }
 
 @ bpb (b *%Buf, p *u8, n s64) v {
   bneed(b, n)
   cp((b.p + b.n), p, n)
-  b.n = (b.n + n)
+  b.n += n
 }
 
 @ bps (b *%Buf, s %Str) v {
@@ -147,23 +147,23 @@ $~ hlock s64 = 0
 
 @ bpn (b *%Buf, x s64) v {
   $~ t [24]u8
-  $~ i s64 = 24
+  $~ i = 24
   $~ neg b = (x < 0)
   $~ u u64 = u64(x)
   ? neg {
-    u = (u64(0) - u)
+    u = u64(0) - u
   }
-  ? (u == u64(0)) {
-    i = (i - 1)
+  ? u == u64(0) {
+    i -= 1
     t[i] = `0
   }
-  * (u > u64(0)) {
-    i = (i - 1)
-    t[i] = (u8((u % u64(10))) + `0)
-    u = (u / u64(10))
+  * u > u64(0) {
+    i -= 1
+    t[i] = u8((u % u64(10))) + `0
+    u /= u64(10)
   }
   ? neg {
-    i = (i - 1)
+    i -= 1
     t[i] = `-
   }
   bpb(b, &t[i], (24 - i))

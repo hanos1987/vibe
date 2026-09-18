@@ -19,7 +19,7 @@
 }
 
 @ arg (i s64) %Str {
-  ? (i >= argc()) {
+  ? i >= argc() {
     ^ %Str{ p: *u8(0), n: 0 }
   }
   $ q *u8 = argp(i)
@@ -33,18 +33,18 @@
 }
 
 @ env (name %Str) %Str {
-  $~ i s64 = 0
-  * (envp(i) != *u8(0)) {
+  $~ i = 0
+  * envp(i) != *u8(0) {
     $ e *u8 = envp(i)
     $ el s64 = ln(e)
-    ? (el > name.n) {
-      ? (e[name.n] == `=) {
+    ? el > name.n {
+      ? e[name.n] == `= {
         ? beq(e, name.p, name.n) {
           ^ %Str{ p: &e[(name.n + 1)], n: ((el - name.n) - 1) }
         }
       }
     }
-    i = (i + 1)
+    i += 1
   }
   ^ %Str{ p: *u8(0), n: 0 }
 }
@@ -57,25 +57,25 @@
 $$ ARENA s64 = 1048576
 
 $~ ap *u8
-$~ aleft s64 = 0
+$~ aleft = 0
 
 @ alloc (n s64) *u8 {
   $ need s64 = ((n + 15) & -16)
-  ? (need > aleft) {
+  ? need > aleft {
     $~ sz s64 = ARENA
-    ? (need > sz) {
-      sz = ((need + 4095) & -4096)
+    ? need > sz {
+      sz = (need + 4095) & -4096
     }
     $ blk *u8 = mm(sz)
-    ? (blk == *u8(0)) {
+    ? blk == *u8(0) {
       ^ *u8(0)
     }
     ap = blk
     aleft = sz
   }
   $ r *u8 = ap
-  ap = (ap + need)
-  aleft = (aleft - need)
+  ap += need
+  aleft -= need
   ^ r
 }
 
@@ -83,22 +83,22 @@ $~ aleft s64 = 0
 
 ; decimal to integer; stops at the first character that is not a digit
 @ nat (s %Str) s64 {
-  $~ i s64 = 0
-  $~ v s64 = 0
+  $~ i = 0
+  $~ v = 0
   $~ neg b = 0
-  ? (s.n > 0) {
-    ? (s.p[0] == `-) {
+  ? s.n > 0 {
+    ? s.p[0] == `- {
       neg = 1
       i = 1
     }
   }
-  * (i < s.n) {
+  * i < s.n {
     $ c u8 = s.p[i]
-    ? ((c < `0) || (c > `9)) {
+    ? (c < `0) || (c > `9) {
       *<
     }
-    v = ((v * 10) + s64((c - `0)))
-    i = (i + 1)
+    v = (v * 10) + s64((c - `0))
+    i += 1
   }
   ? neg {
     ^ -v
@@ -110,19 +110,19 @@ $~ aleft s64 = 0
 
 @ pf (x f64, dp s64) v {
   $~ v f64 = x
-  ? (v < 0.0) {
+  ? v < 0.0 {
     pc(`-)
     v = -v
   }
-  ? (dp <= 0) {
+  ? dp <= 0 {
     pn(s64((v + 0.5)))
     ^
   }
-  $~ scale s64 = 1
-  $~ k s64 = 0
-  * (k < dp) {
-    scale = (scale * 10)
-    k = (k + 1)
+  $~ scale = 1
+  $~ k = 0
+  * k < dp {
+    scale *= 10
+    k += 1
   }
   ; round at the last digit asked for, so 2.7182818 to 6 places is 2.718282
   $ scaled s64 = s64(((v * f64(scale)) + 0.5))
@@ -130,9 +130,9 @@ $~ aleft s64 = 0
   pc(`.)
   $ frac s64 = (scaled % scale)
   $~ d s64 = (scale / 10)
-  * (d > 0) {
+  * d > 0 {
     pc(u8((`0 + ((frac / d) % 10))))
-    d = (d / 10)
+    d /= 10
   }
   ^
 }
@@ -170,22 +170,22 @@ $$ O_APPEND s64 = 1024
 ; read a whole file into freshly allocated, NUL-terminated memory
 @ fall (path *u8) %Str {
   $ fd s64 = fo(path, O_RDONLY, 0)
-  ? (fd < 0) {
+  ? fd < 0 {
     ^ %Str{ p: *u8(0), n: 0 }
   }
   $ n s64 = fsz(fd)
   $ buf *u8 = alloc((n + 1))
-  ? (buf == *u8(0)) {
+  ? buf == *u8(0) {
     fc(fd)
     ^ %Str{ p: *u8(0), n: 0 }
   }
-  $~ got s64 = 0
-  * (got < n) {
+  $~ got = 0
+  * got < n {
     $ k s64 = \0(fd, &buf[got], (n - got))
-    ? (k <= 0) {
+    ? k <= 0 {
       *<
     }
-    got = (got + k)
+    got += k
   }
   fc(fd)
   buf[got] = 0
@@ -199,7 +199,7 @@ $$ O_APPEND s64 = 1024
 @ now_ns () s64 {
   $~ ts %TSpec
   \228(1, &ts)
-  ^ ((ts.sec * 1000000000) + ts.nsec)
+  ^ (ts.sec * 1000000000) + ts.nsec
 }
 
 @ nap (ms s64) v {
@@ -225,7 +225,7 @@ $$ O_APPEND s64 = 1024
 @ waitpid (p s64) s64 {
   $~ st s32 = 0
   $ r s64 = \61(p, &st, 0, 0)
-  ? (r < 0) {
+  ? r < 0 {
     ^ -1
   }
   ^ s64(((st >> 8) & 255))
@@ -261,7 +261,7 @@ $$ SO_REUSEADDR s64 = 2
 ; bind and listen on a TCP port; returns the listening fd, or -1
 @ srv (port s64) s64 {
   $ fd s64 = \41(AF_INET, SOCK_STREAM, 0)
-  ? (fd < 0) {
+  ? fd < 0 {
     ^ -1
   }
   $~ one s32 = 1
@@ -272,11 +272,11 @@ $$ SO_REUSEADDR s64 = 2
     addr: 0,
     pad: [0, 0, 0, 0, 0, 0, 0, 0]
   }
-  ? (\49(fd, &sa, 16) < 0) {
+  ? \49(fd, &sa, 16) < 0 {
     fc(fd)
     ^ -1
   }
-  ? (\50(fd, 64) < 0) {
+  ? \50(fd, 64) < 0 {
     fc(fd)
     ^ -1
   }

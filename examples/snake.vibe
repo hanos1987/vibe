@@ -26,53 +26,53 @@ $~ saved [64]u8
 
 $~ body [MAXLEN]s64
 $~ occ  [CELLS]u8
-$~ head s64 = 0
-$~ blen s64 = 0
+$~ head = 0
+$~ blen = 0
 $~ dx   s64 = 1
 $~ dy   s64 = 0
-$~ food s64 = 0
+$~ food = 0
 $~ seed u64 = 0
-$~ score s64 = 0
+$~ score = 0
 $~ alive b = 0
 
 $~ out  [BUFSZ]u8
-$~ olen s64 = 0
+$~ olen = 0
 
 ; ---- output buffer ---------------------------------------------------------
 
 @ emit (c u8) v {
-  ? (olen < BUFSZ) {
+  ? olen < BUFSZ {
     out[olen] = c
-    olen = (olen + 1)
+    olen += 1
   }
   ^
 }
 
 @ emits (s %Str) v {
-  $~ i s64 = 0
-  * (i < s.n) {
+  $~ i = 0
+  * i < s.n {
     emit(s.p[i])
-    i = (i + 1)
+    i += 1
   }
   ^
 }
 
 @ emitn (x s64) v {
-  ? (x == 0) {
+  ? x == 0 {
     emit(`0)
     ^
   }
   $~ buf [24]u8
-  $~ i s64 = 24
+  $~ i = 24
   $~ v s64 = x
-  * (v > 0) {
-    i = (i - 1)
+  * v > 0 {
+    i -= 1
     buf[i] = u8((`0 + (v % 10)))
-    v = (v / 10)
+    v /= 10
   }
-  * (i < 24) {
+  * i < 24 {
     emit(buf[i])
-    i = (i + 1)
+    i += 1
   }
   ^
 }
@@ -89,7 +89,7 @@ $~ olen s64 = 0
   \16(0, TCGETS, &term[0])
   cp(&saved[0], &term[0], 64)
   $ lf *u32 = *u32(&term[12])          ; c_lflag
-  lf' = (lf' & NOT_ICANON_ECHO)
+  lf' &= NOT_ICANON_ECHO
   term[22] = 0                         ; VTIME
   term[23] = 0                         ; VMIN: read never blocks
   \16(0, TCSETS, &term[0])
@@ -105,9 +105,9 @@ $~ olen s64 = 0
 
 @ rnd () u64 {
   $~ x u64 = seed
-  x = (x ^ (x << 13))
-  x = (x ^ (x >> 7))
-  x = (x ^ (x << 17))
+  x ^= x << 13
+  x ^= x >> 7
+  x ^= x << 17
   seed = x
   ^ x
 }
@@ -115,9 +115,9 @@ $~ olen s64 = 0
 ; ---- snake -----------------------------------------------------------------
 
 @ push_head (cell s64) v {
-  head = ((head + 1) % MAXLEN)
+  head = (head + 1) % MAXLEN
   body[head] = cell
-  blen = (blen + 1)
+  blen += 1
   occ[cell] = 1
   ^
 }
@@ -125,26 +125,26 @@ $~ olen s64 = 0
 @ pop_tail () v {
   $ t s64 = ((((head - blen) + 1) + MAXLEN) % MAXLEN)
   occ[body[t]] = 0
-  blen = (blen - 1)
+  blen -= 1
   ^
 }
 
 @ place_food () v {
-  $~ tries s64 = 0
-  * (tries < 20000) {
+  $~ tries = 0
+  * tries < 20000 {
     $ c s64 = s64((rnd() % u64(CELLS)))
-    ? (occ[c] == u8(0)) {
+    ? occ[c] == u8(0) {
       food = c
       ^
     }
-    tries = (tries + 1)
+    tries += 1
   }
   ^
 }
 
 @ turn (nx s64, ny s64) v {
   ; refuse to reverse straight into the neck
-  ? (((dx + nx) == 0) && ((dy + ny) == 0)) {
+  ? ((dx + nx) == 0) && ((dy + ny) == 0) {
     ^
   }
   dx = nx
@@ -155,28 +155,28 @@ $~ olen s64 = 0
 @ poll_input () v {
   $~ buf [8]u8
   $ n s64 = \0(0, &buf[0], 8)
-  ? (n <= 0) {
+  ? n <= 0 {
     ^
   }
-  $~ i s64 = 0
-  * (i < n) {
+  $~ i = 0
+  * i < n {
     $ c u8 = buf[i]
-    ? (c == `q) {
+    ? c == `q {
       alive = 0
     }
-    ? ((c == `w) || (c == `A)) {
+    ? (c == `w) || (c == `A) {
       turn(0, -1)
     }
-    ? ((c == `s) || (c == `B)) {
+    ? (c == `s) || (c == `B) {
       turn(0, 1)
     }
-    ? ((c == `a) || (c == `D)) {
+    ? (c == `a) || (c == `D) {
       turn(-1, 0)
     }
-    ? ((c == `d) || (c == `C)) {
+    ? (c == `d) || (c == `C) {
       turn(1, 0)
     }
-    i = (i + 1)
+    i += 1
   }
   ^
 }
@@ -185,18 +185,18 @@ $~ olen s64 = 0
   $ hcell s64 = body[head]
   $ nx s64 = ((hcell % W) + dx)
   $ ny s64 = ((hcell / W) + dy)
-  ? ((nx < 0) || (nx >= W) || (ny < 0) || (ny >= H)) {
+  ? (nx < 0) || (nx >= W) || (ny < 0) || (ny >= H) {
     alive = 0
     ^
   }
   $ ncell s64 = ((ny * W) + nx)
-  ? (occ[ncell] == u8(1)) {
+  ? occ[ncell] == u8(1) {
     alive = 0
     ^
   }
   push_head(ncell)
-  ? (ncell == food) {
-    score = (score + 1)
+  ? ncell == food {
+    score += 1
     place_food()
   } : {
     pop_tail()
@@ -207,11 +207,11 @@ $~ olen s64 = 0
 ; ---- drawing ---------------------------------------------------------------
 
 @ rule () v {
-  $~ x s64 = 0
+  $~ x = 0
   emit(`+)
-  * (x < W) {
+  * x < W {
     emit(`-)
-    x = (x + 1)
+    x += 1
   }
   emit(`+)
   emit(`\n)
@@ -222,17 +222,17 @@ $~ olen s64 = 0
   olen = 0
   emits("\e[H")
   rule()
-  $~ y s64 = 0
-  * (y < H) {
+  $~ y = 0
+  * y < H {
     emit(`|)
-    $~ x s64 = 0
-    * (x < W) {
+    $~ x = 0
+    * x < W {
       $ c s64 = ((y * W) + x)
-      ? (c == food) {
+      ? c == food {
         emit(`*)
       } : {
-        ? (occ[c] == u8(1)) {
-          ? (c == body[head]) {
+        ? occ[c] == u8(1) {
+          ? c == body[head] {
             emit(`@)
           } : {
             emit(`o)
@@ -241,11 +241,11 @@ $~ olen s64 = 0
           emit(` )
         }
       }
-      x = (x + 1)
+      x += 1
     }
     emit(`|)
     emit(`\n)
-    y = (y + 1)
+    y += 1
   }
   rule()
   emits(" score ")
@@ -261,7 +261,7 @@ $~ olen s64 = 0
 @! () s64 {
   $~ ts %TS
   \228(1, &ts)
-  seed = (u64(ts.nsec) | 1)
+  seed = u64(ts.nsec) | 1
 
   raw_on()
   emits("\e[2J\e[?25l")
