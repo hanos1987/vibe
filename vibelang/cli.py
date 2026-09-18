@@ -24,7 +24,7 @@ from .parser import ParseError
 from .lexer import LexError
 from .codegen import compile_program
 
-VERSION = "0.3.0"
+VERSION = "0.3.1"
 
 USAGE = __doc__
 

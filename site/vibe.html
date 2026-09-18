@@ -560,7 +560,7 @@ sudo apt update &amp;&amp; sudo apt install vibe</pre>
 
       <div class="panel" id="p-pip" role="tabpanel" aria-labelledby="tab-pip" hidden>
         <button class="copy" type="button">COPY</button>
-<pre>pipx install https://github.com/hanos1987/vibe/releases/download/v0.3.0/vibe_lang-0.3.0-py3-none-any.whl</pre>
+<pre>pipx install https://github.com/hanos1987/vibe/releases/download/v0.3.1/vibe_lang-0.3.1-py3-none-any.whl</pre>
         <div class="note">Works on Linux, macOS and Windows. Use <code>pip install</code> instead to put it in a virtualenv.</div>
       </div>
 
@@ -580,21 +580,21 @@ cd vibe
 
       <div class="eyebrow" style="margin-top:44px">Direct downloads</div>
       <div class="dl">
-        <a href="https://github.com/hanos1987/vibe/releases/download/v0.3.0/vibe_0.3.0_all.deb">
-          <span class="n">vibe_0.3.0_all.deb</span>
+        <a href="https://github.com/hanos1987/vibe/releases/download/v0.3.1/vibe_0.3.1_all.deb">
+          <span class="n">vibe_0.3.1_all.deb</span>
           <span class="m">48 KB · Debian / Ubuntu</span>
         </a>
-        <a href="https://github.com/hanos1987/vibe/releases/download/v0.3.0/vibe-0.3.0.tar.gz">
-          <span class="n">vibe-0.3.0.tar.gz</span>
+        <a href="https://github.com/hanos1987/vibe/releases/download/v0.3.1/vibe-0.3.1.tar.gz">
+          <span class="n">vibe-0.3.1.tar.gz</span>
           <span class="m">68 KB · source, all platforms</span>
         </a>
-        <a href="https://github.com/hanos1987/vibe/releases/download/v0.3.0/vibe_lang-0.3.0-py3-none-any.whl">
-          <span class="n">vibe_lang-0.3.0.whl</span>
+        <a href="https://github.com/hanos1987/vibe/releases/download/v0.3.1/vibe_lang-0.3.1-py3-none-any.whl">
+          <span class="n">vibe_lang-0.3.1.whl</span>
           <span class="m">48 KB · Python wheel</span>
         </a>
       </div>
       <p class="sub" style="margin-top:14px; font-size:14.5px">
-        Checksums: <a href="https://github.com/hanos1987/vibe/releases/download/v0.3.0/SHA256SUMS">SHA256SUMS</a>.
+        Checksums: <a href="https://github.com/hanos1987/vibe/releases/download/v0.3.1/SHA256SUMS">SHA256SUMS</a>.
         Every artifact is reproducible with <code>packaging/release.sh</code> from the repository.
         All releases are listed on <a href="https://github.com/hanos1987/vibe/releases">GitHub</a>.
       </p>
@@ -743,8 +743,8 @@ cd vibe
         <div class="eyebrow">Speed and size</div>
         <h2>Measured against gcc, on identical programs.</h2>
         <p>
-          Best of three runs, with every build's output verified equal before the timings
-          are reported. Reproduce them with <code>python3 bench/run.py</code>.
+          Least CPU time of seven runs, with every build's output verified equal before the
+          timings are reported. Reproduce them with <code>python3 bench/run.py</code>.
         </p>
       </div>
       <div class="tablewrap">
@@ -753,10 +753,10 @@ cd vibe
             <tr><th>Benchmark</th><th>VIBE native</th><th>VIBE --backend=c</th><th>gcc -O0</th><th>gcc -O2</th><th>gcc -O3</th></tr>
           </thead>
           <tbody>
-            <tr><td>fib(35)</td><td class="num">0.031s</td><td class="num win">0.013s</td><td class="num">0.063s</td><td class="num">0.019s</td><td class="num">0.018s</td></tr>
-            <tr><td>sieve, 10M</td><td class="num">0.034s</td><td class="num win">0.026s</td><td class="num">0.080s</td><td class="num">0.031s</td><td class="num">0.027s</td></tr>
-            <tr><td>matmul, 400²</td><td class="num">0.069s</td><td class="num win">0.041s</td><td class="num">0.141s</td><td class="num">0.042s</td><td class="num">0.042s</td></tr>
-            <tr><td>mandelbrot, 900²</td><td class="num">0.065s</td><td class="num win">0.042s</td><td class="num">0.143s</td><td class="num">0.043s</td><td class="num">0.043s</td></tr>
+            <tr><td>fib(35)</td><td class="num">0.033s</td><td class="num win">0.018s</td><td class="num">0.062s</td><td class="num">0.029s</td><td class="num">0.017s</td></tr>
+            <tr><td>sieve, 10M</td><td class="num win">0.022s</td><td class="num">0.025s</td><td class="num">0.071s</td><td class="num">0.025s</td><td class="num">0.026s</td></tr>
+            <tr><td>matmul, 400²</td><td class="num">0.074s</td><td class="num win">0.051s</td><td class="num">0.160s</td><td class="num">0.037s</td><td class="num">0.035s</td></tr>
+            <tr><td>mandelbrot, 900²</td><td class="num">0.052s</td><td class="num win">0.047s</td><td class="num">0.146s</td><td class="num">0.042s</td><td class="num">0.040s</td></tr>
           </tbody>
         </table>
       </div>
@@ -776,7 +776,7 @@ cd vibe
       </div>
       <p class="sub" style="margin-top:22px">
         Two backends, one language. The native backend needs nothing but Python, builds
-        instantly, and runs about 2× faster than <code>gcc -O0</code> and within about 1.6×
+        instantly, and runs 2–3× faster than <code>gcc -O0</code> and between parity and about 1.7×
         of <code>gcc -O2</code>. The C backend prints the same program as freestanding C and
         lets gcc or clang optimise it: still a static binary with no libc, now level with
         C. Develop with the first, ship with the second.
@@ -787,11 +787,11 @@ cd vibe
 
 <footer>
   <div class="wrap foot-in">
-    <div>VIBE 0.3.0 · MIT licensed · x86-64 Linux target</div>
+    <div>VIBE 0.3.1 · MIT licensed · x86-64 Linux target</div>
     <div>
       <a href="https://github.com/hanos1987/vibe">GitHub</a> ·
       <a href="https://github.com/hanos1987/vibe/blob/master/SPEC.md">Specification</a> ·
-      <a href="https://github.com/hanos1987/vibe/releases/download/v0.3.0/SHA256SUMS">Checksums</a>
+      <a href="https://github.com/hanos1987/vibe/releases/download/v0.3.1/SHA256SUMS">Checksums</a>
     </div>
   </div>
 </footer>

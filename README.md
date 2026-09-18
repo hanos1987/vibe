@@ -31,8 +31,8 @@ WSL, on macOS run them in a container or VM.
 | Platform | Command |
 |---|---|
 | Any Linux, macOS | `curl -fsSL https://raw.githubusercontent.com/hanos1987/vibe/master/install.sh \| sh` |
-| Debian / Ubuntu | `sudo apt install vibe` after adding the repository below, or download `vibe_0.3.0_all.deb` from the [release](https://github.com/hanos1987/vibe/releases/latest) and `sudo apt install ./vibe_0.3.0_all.deb` |
-| Any, with pip | `pipx install https://github.com/hanos1987/vibe/releases/download/v0.3.0/vibe_lang-0.3.0-py3-none-any.whl` |
+| Debian / Ubuntu | `sudo apt install vibe` after adding the repository below, or download `vibe_0.3.1_all.deb` from the [release](https://github.com/hanos1987/vibe/releases/latest) and `sudo apt install ./vibe_0.3.1_all.deb` |
+| Any, with pip | `pipx install https://github.com/hanos1987/vibe/releases/download/v0.3.1/vibe_lang-0.3.1-py3-none-any.whl` |
 | Windows | `irm https://raw.githubusercontent.com/hanos1987/vibe/master/install.ps1 \| iex` |
 | From source | `git clone https://github.com/hanos1987/vibe && cd vibe && ./install.sh` |
 
@@ -141,19 +141,22 @@ optimiser, and the fuzzer compares the two on random programs.
 
 ## Benchmarks
 
-Identical programs, best of three, outputs verified equal.
+Identical programs, least user CPU time of seven runs, outputs verified
+equal (`python3 bench/run.py`).
 
 | bench | VIBE native | VIBE `--backend=c` | gcc -O0 | gcc -O2 | gcc -O3 |
 |---|---|---|---|---|---|
-| fib(35) | 0.031s | 0.013s | 0.063s | 0.019s | 0.018s |
-| sieve 10M | 0.034s | 0.026s | 0.080s | 0.031s | 0.027s |
-| matmul 400 | 0.069s | 0.041s | 0.141s | 0.042s | 0.042s |
-| mandel 900² | 0.065s | 0.042s | 0.143s | 0.043s | 0.043s |
+| fib(35) | 0.033s | 0.018s | 0.062s | 0.029s | 0.017s |
+| sieve 10M | 0.022s | 0.025s | 0.071s | 0.025s | 0.026s |
+| matmul 400 | 0.074s | 0.051s | 0.160s | 0.037s | 0.035s |
+| mandel 900² | 0.052s | 0.047s | 0.146s | 0.042s | 0.040s |
 
 Through the C backend VIBE runs level with gcc `-O3` on the same algorithm,
 because it *is* gcc's optimiser working on VIBE's program. The native
 backend — a dozen optimisation passes in Python, no toolchain at all — runs
-about 2x faster than `gcc -O0` and within about 1.6x of `gcc -O2`.
+2-3x faster than `gcc -O0` and between parity and about 1.7x of `gcc -O2`
+(sieve and byte-scanning loops at parity; recursion and float loops behind;
+nothing is vectorised).
 
 Token cost matters when a model writes the code. On the same four programs,
 idiomatic VIBE costs 0.99x the tokens of the C (o200k tokenizer;

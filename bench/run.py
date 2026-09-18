@@ -14,7 +14,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 VIBEC = os.path.join(ROOT, "vibec")
 BENCHES = ["fib", "sieve", "matmul", "mandel"]
-REPS = 3
+REPS = 7
 
 
 def sh(cmd):
@@ -25,12 +25,14 @@ def sh(cmd):
 
 
 def timeit(path):
+    """Least user CPU time over REPS runs: robust against other load."""
+    import resource
     best = None
     out = None
     for _ in range(REPS):
-        t0 = time.perf_counter()
+        t0 = resource.getrusage(resource.RUSAGE_CHILDREN).ru_utime
         r = subprocess.run([path], capture_output=True, text=True)
-        dt = time.perf_counter() - t0
+        dt = resource.getrusage(resource.RUSAGE_CHILDREN).ru_utime - t0
         if r.returncode != 0:
             raise SystemExit("%s exited %d" % (path, r.returncode))
         out = r.stdout.strip()
