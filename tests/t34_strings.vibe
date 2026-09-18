@@ -1,0 +1,42 @@
+; string helpers in std.vibe
+; out: 3 -1 8
+; out: [hello] 1 1
+; out: a|b||c||
+; out: -42 -3.25
+; out: 5 13
+<<"std.vibe"
+
+@! () s64 {
+  $ s %Str = "  hello world  "
+  pn(sidx(s, `e))
+  pc(` )
+  pn(sfind(s, "xyz"))
+  pc(` )
+  pnl(sfind(s, "wor"))
+  $ t = strim(s)
+  pc(`[)
+  ps(ssub(t, 0, 5))
+  pc(`])
+  pc(` )
+  pn(s64(sstarts(t, "hel")))
+  pc(` )
+  pnl(s64(sends(t, "rld")))
+  $~ rest %Str = "a,b,,c,"
+  $~ done b = 0
+  * 1 {
+    $ tok = stok(&rest, `,, &done)
+    ? done {
+      *<
+    }
+    ps(tok)
+    pc(`|)
+  }
+  nl()
+  pn(sint("-42x"))
+  pc(` )
+  pfl(sfloat("-3.25"), 2)
+  pn(uchars("héllo"))
+  pc(` )
+  pnl(ln("日本語 abc".p))
+  ^ 0
+}

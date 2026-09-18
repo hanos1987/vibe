@@ -251,3 +251,168 @@
 @ cstrlen (p *u8) s64 {
   ^ ln(p)
 }
+
+; ---- strings ---------------------------------------------------------------------
+; %Str values are views: none of these copy bytes.
+
+; a view of s from byte a up to but not including b
+@ ssub (s %Str, a s64, b s64) %Str {
+  ? a < 0 {
+    a = 0
+  }
+  ? b > s.n {
+    b = s.n
+  }
+  ? b < a {
+    b = a
+  }
+  ^ %Str{ p: s.p + a, n: b - a }
+}
+
+; index of byte c in s, or -1
+@ sidx (s %Str, c u8) s64 {
+  * i 0 s.n {
+    ? s.p[i] == c {
+      ^ i
+    }
+  }
+  ^ -1
+}
+
+; index of t in s, or -1
+@ sfind (s %Str, t %Str) s64 {
+  ? t.n == 0 {
+    ^ 0
+  }
+  * i 0 ((s.n - t.n) + 1) {
+    ? beq(s.p + i, t.p, t.n) {
+      ^ i
+    }
+  }
+  ^ -1
+}
+
+@ sstarts (s %Str, t %Str) b {
+  ? t.n > s.n {
+    ^ 0
+  }
+  ^ beq(s.p, t.p, t.n)
+}
+
+@ sends (s %Str, t %Str) b {
+  ? t.n > s.n {
+    ^ 0
+  }
+  ^ beq(s.p + (s.n - t.n), t.p, t.n)
+}
+
+@ sspace (c u8) b {
+  ^ (c == ` ) || (c == `\t) || (c == `\n) || (c == `\r)
+}
+
+; without leading and trailing whitespace
+@ strim (s %Str) %Str {
+  $~ a = 0
+  $~ b = s.n
+  * (a < b) && sspace(s.p[a]) {
+    a += 1
+  }
+  * (b > a) && sspace(s.p[b - 1]) {
+    b -= 1
+  }
+  ^ ssub(s, a, b)
+}
+
+; the next field of *rest up to sep, advancing *rest past it; sets
+; done when the string is exhausted (so "a,b" yields "a", "b", then done)
+@ stok (rest *%Str, sep u8, done *b) %Str {
+  ? rest.n < 0 {
+    done' = 1
+    ^ %Str{ p: rest.p, n: 0 }
+  }
+  $ i = sidx(rest', sep)
+  ? i < 0 {
+    $ last = rest'
+    rest.n = -1
+    done' = 0
+    ^ last
+  }
+  $ tok = ssub(rest', 0, i)
+  rest.p = rest.p + (i + 1)
+  rest.n = rest.n - (i + 1)
+  done' = 0
+  ^ tok
+}
+
+; signed decimal to integer, with an optional leading - ; stops at the
+; first non-digit
+@ sint (s %Str) s64 {
+  $~ i = 0
+  $~ neg b = 0
+  ? (s.n > 0) && (s.p[0] == `-) {
+    neg = 1
+    i = 1
+  }
+  $~ v = 0
+  * (i < s.n) && (s.p[i] >= `0) && (s.p[i] <= `9) {
+    v = (v * 10) + s64(s.p[i] - `0)
+    i += 1
+  }
+  ? neg {
+    ^ -v
+  }
+  ^ v
+}
+
+; decimal with an optional fraction and sign, e.g. "-3.25"
+@ sfloat (s %Str) f64 {
+  $~ i = 0
+  $~ neg b = 0
+  ? (s.n > 0) && (s.p[0] == `-) {
+    neg = 1
+    i = 1
+  }
+  $~ v = 0.0
+  * (i < s.n) && (s.p[i] >= `0) && (s.p[i] <= `9) {
+    v = (v * 10.0) + f64(s64(s.p[i] - `0))
+    i += 1
+  }
+  ? (i < s.n) && (s.p[i] == `.) {
+    i += 1
+    $~ scale = 0.1
+    * (i < s.n) && (s.p[i] >= `0) && (s.p[i] <= `9) {
+      v += f64(s64(s.p[i] - `0)) * scale
+      scale *= 0.1
+      i += 1
+    }
+  }
+  ? neg {
+    ^ -v
+  }
+  ^ v
+}
+
+; the number of bytes of the UTF-8 character starting with byte c
+@ ulen (c u8) s64 {
+  ? c < 128 {
+    ^ 1
+  }
+  ? c < 224 {
+    ^ 2
+  }
+  ? c < 240 {
+    ^ 3
+  }
+  ^ 4
+}
+
+; count UTF-8 characters
+@ uchars (s %Str) s64 {
+  $~ i = 0
+  $~ n = 0
+  * i < s.n {
+    i += ulen(s.p[i])
+    n += 1
+  }
+  ^ n
+}
