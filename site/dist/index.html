@@ -470,7 +470,7 @@
     <p class="lede">No keywords in any human language. Compiled straight to machine code.</p>
     <p class="sub">
       <code>vibec</code> writes the ELF bytes itself. No assembler, no linker, no C library,
-      and nothing at all inside the executable it produces. A hello-world binary is 2&nbsp;KB
+      and nothing at all inside the executable it produces. A hello-world binary is under 1&nbsp;KB
       and depends on nothing. For release builds, <code>--backend=c</code> sends the same
       program through gcc or clang and runs level with C at <code>-O3</code>.
     </p>
@@ -578,7 +578,7 @@ sudo apt update &amp;&amp; sudo apt install vibe</pre>
 
       <div class="panel" id="p-pip" role="tabpanel" aria-labelledby="tab-pip" hidden>
         <button class="copy" type="button">COPY</button>
-<pre>pipx install https://github.com/hanos1987/vibe/releases/download/v0.2.0/vibe_lang-0.2.0-py3-none-any.whl</pre>
+<pre>pipx install https://github.com/hanos1987/vibe/releases/download/v0.3.0/vibe_lang-0.3.0-py3-none-any.whl</pre>
         <div class="note">Works on Linux, macOS and Windows. Use <code>pip install</code> instead to put it in a virtualenv.</div>
       </div>
 
@@ -598,21 +598,21 @@ cd vibe
 
       <div class="eyebrow" style="margin-top:44px">Direct downloads</div>
       <div class="dl">
-        <a href="https://github.com/hanos1987/vibe/releases/download/v0.2.0/vibe_0.2.0_all.deb">
-          <span class="n">vibe_0.2.0_all.deb</span>
+        <a href="https://github.com/hanos1987/vibe/releases/download/v0.3.0/vibe_0.3.0_all.deb">
+          <span class="n">vibe_0.3.0_all.deb</span>
           <span class="m">48 KB · Debian / Ubuntu</span>
         </a>
-        <a href="https://github.com/hanos1987/vibe/releases/download/v0.2.0/vibe-0.2.0.tar.gz">
-          <span class="n">vibe-0.2.0.tar.gz</span>
+        <a href="https://github.com/hanos1987/vibe/releases/download/v0.3.0/vibe-0.3.0.tar.gz">
+          <span class="n">vibe-0.3.0.tar.gz</span>
           <span class="m">68 KB · source, all platforms</span>
         </a>
-        <a href="https://github.com/hanos1987/vibe/releases/download/v0.2.0/vibe_lang-0.2.0-py3-none-any.whl">
-          <span class="n">vibe_lang-0.2.0.whl</span>
+        <a href="https://github.com/hanos1987/vibe/releases/download/v0.3.0/vibe_lang-0.3.0-py3-none-any.whl">
+          <span class="n">vibe_lang-0.3.0.whl</span>
           <span class="m">48 KB · Python wheel</span>
         </a>
       </div>
       <p class="sub" style="margin-top:14px; font-size:14.5px">
-        Checksums: <a href="https://github.com/hanos1987/vibe/releases/download/v0.2.0/SHA256SUMS">SHA256SUMS</a>.
+        Checksums: <a href="https://github.com/hanos1987/vibe/releases/download/v0.3.0/SHA256SUMS">SHA256SUMS</a>.
         Every artifact is reproducible with <code>packaging/release.sh</code> from the repository.
         All releases are listed on <a href="https://github.com/hanos1987/vibe/releases">GitHub</a>.
       </p>
@@ -648,6 +648,8 @@ cd vibe
         <div class="sg"><div class="sigil-glyph">~</div><span>defer to scope exit</span></div>
         <div class="sg"><div class="sigil-glyph">&lt;T&gt;</div><span>generics</span></div>
         <div class="sg"><div class="sigil-glyph">@&lt;</div><span>C function</span></div>
+        <div class="sg"><div class="sigil-glyph">x.f( )</div><span>method call</span></div>
+        <div class="sg"><div class="sigil-glyph">e!</div><span>unwrap or return the error</span></div>
         <div class="sg"><div class="sigil-glyph">\name</div><span>intrinsic</span></div>
         <div class="sg"><div class="sigil-glyph">\N</div><span>syscall N</span></div>
         <div class="sg"><div class="sigil-glyph">\\[ ]</div><span>inline machine code</span></div>
@@ -662,24 +664,30 @@ cd vibe
       <div class="thesis" style="margin-top:34px">
         <div class="pane" style="grid-column: 1 / -1">
           <div class="pane-label">a whole program — matching is checked for exhaustiveness</div>
-<pre><span class="k">&lt;&lt;</span><span class="s">"std.vibe"</span>
+<pre><span class="k">&lt;&lt;</span><span class="s">"heap.vibe"</span>
 
-<span class="k">%|</span> Res {
-  <span class="k">|</span>Ok(<span class="t">s64</span>)
-  <span class="k">|</span>Err(<span class="t">s64</span>)
-}
-
-<span class="k">@</span> divide (a <span class="t">s64</span>, b <span class="t">s64</span>) <span class="t">%Res</span> {
+<span class="k">@</span> divide (a <span class="t">s64</span>, b <span class="t">s64</span>) <span class="t">%Res&lt;s64, %Str&gt;</span> {
   <span class="k">?</span> b == 0 {
-    <span class="k">^</span> %Res|Err(7)
+    <span class="k">^</span> %Res|Err(<span class="s">"divide by zero"</span>)
   }
   <span class="k">^</span> %Res|Ok(a / b)
 }
 
+<span class="k">@</span> halve_all (v <span class="t">*%Vec&lt;s64&gt;</span>) <span class="t">%Res&lt;s64, %Str&gt;</span> {
+  <span class="k">$~</span> t = 0
+  <span class="k">*</span> i 0 v.n {
+    t += divide(v.p[i], 2)!        <span class="c">; ! returns the Err for us</span>
+  }
+  <span class="k">^</span> %Res|Ok(t)
+}
+
 <span class="k">@!</span> () <span class="t">s64</span> {
-  <span class="k">??</span> divide(84, 2) {
-    <span class="k">|</span>Ok(v)  { pnl(v) }        <span class="c">; prints 42</span>
-    <span class="k">|</span>Err(c) { pnl(c) }
+  <span class="k">$~</span> v <span class="t">%Vec&lt;s64&gt;</span> = vnew()
+  v.vpush(84)
+  v.vpush(10)
+  <span class="k">??</span> halve_all(&amp;v) {
+    <span class="k">|</span>Ok(t)  { \print(<span class="s">"total {}\n"</span>, t) }   <span class="c">; total 47</span>
+    <span class="k">|</span>Err(m) { \eprint(<span class="s">"{}\n"</span>, m) }
   }
   <span class="k">^</span> 0
 }</pre>
@@ -776,8 +784,8 @@ cd vibe
           <div class="stat-l">through <code>--backend=c</code>: level with <code>gcc -O3</code> on all four benchmarks</div>
         </div>
         <div class="stat">
-          <div class="stat-n">2 KB</div>
-          <div class="stat-l">static binary, where the same static C program is 785 KB</div>
+          <div class="stat-n">319 B</div>
+          <div class="stat-l">stripped hello world, where the same static C program is 785 KB</div>
         </div>
         <div class="stat">
           <div class="stat-n">0</div>
@@ -797,11 +805,11 @@ cd vibe
 
 <footer>
   <div class="wrap foot-in">
-    <div>VIBE 0.2.0 · MIT licensed · x86-64 Linux target</div>
+    <div>VIBE 0.3.0 · MIT licensed · x86-64 Linux target</div>
     <div>
       <a href="https://github.com/hanos1987/vibe">GitHub</a> ·
       <a href="https://github.com/hanos1987/vibe/blob/master/SPEC.md">Specification</a> ·
-      <a href="https://github.com/hanos1987/vibe/releases/download/v0.2.0/SHA256SUMS">Checksums</a>
+      <a href="https://github.com/hanos1987/vibe/releases/download/v0.3.0/SHA256SUMS">Checksums</a>
     </div>
   </div>
 </footer>

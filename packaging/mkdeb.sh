@@ -2,7 +2,7 @@
 # Build a Debian package for VIBE.
 #
 #   packaging/mkdeb.sh              -> packaging/out/vibe_<version>_all.deb
-#   sudo apt install ./packaging/out/vibe_0.2.0_all.deb
+#   sudo apt install ./packaging/out/vibe_0.3.0_all.deb
 #
 # The compiler is Python, so the package is Architecture: all. The binaries
 # it *emits* are x86-64 Linux, which the description states plainly.

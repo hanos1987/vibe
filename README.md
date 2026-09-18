@@ -31,8 +31,8 @@ WSL, on macOS run them in a container or VM.
 | Platform | Command |
 |---|---|
 | Any Linux, macOS | `curl -fsSL https://raw.githubusercontent.com/hanos1987/vibe/master/install.sh \| sh` |
-| Debian / Ubuntu | `sudo apt install vibe` after adding the repository below, or download `vibe_0.2.0_all.deb` from the [release](https://github.com/hanos1987/vibe/releases/latest) and `sudo apt install ./vibe_0.2.0_all.deb` |
-| Any, with pip | `pipx install https://github.com/hanos1987/vibe/releases/download/v0.2.0/vibe_lang-0.2.0-py3-none-any.whl` |
+| Debian / Ubuntu | `sudo apt install vibe` after adding the repository below, or download `vibe_0.3.0_all.deb` from the [release](https://github.com/hanos1987/vibe/releases/latest) and `sudo apt install ./vibe_0.3.0_all.deb` |
+| Any, with pip | `pipx install https://github.com/hanos1987/vibe/releases/download/v0.3.0/vibe_lang-0.3.0-py3-none-any.whl` |
 | Windows | `irm https://raw.githubusercontent.com/hanos1987/vibe/master/install.ps1 \| iex` |
 | From source | `git clone https://github.com/hanos1987/vibe && cd vibe && ./install.sh` |
 
@@ -71,13 +71,15 @@ so nothing depends on knowing English.
 |---|---|
 | Types | sized ints, floats, bool, pointers, arrays, structs, tagged sums, function pointers |
 | Generics | `%Vec<T>`, `@ push<T> (...)`, monomorphised, with inference |
+| Methods, errors | `v.push(3)` calls `push(&v, 3)`; `%Res<T,E>` / `%Opt<T>` with `!` propagation |
+| Formatting | `\print("x={} y={.2}\n", x, y)`, `\fmt` |
 | Control | `?` `:` if/else, `*` loops, `* i 0 n` counted loops, `??` exhaustive match, `~` defer |
 | Modules | `<<"file"` flat include, `<<"file" ns` namespaced include |
 | Machine | `\N` syscalls, `\sqrt \popcnt \cas \xadd ...` intrinsics, `\\[..]` raw bytes |
 | Threads | `spawn` / `join` kernel threads, atomics, spin locks, thread-safe heap |
 | C interop | `@< "lib" name (T, ...) R` calls any C library |
-| Library | strings, files, processes, sockets, time, maths, heap, `%Buf` / `%Vec` / `%Map` |
-| Tooling | `--check` bounds traps, `--json` diagnostics, all errors in one run, differential fuzzer |
+| Library | strings, files, processes, sockets, time, maths, heap, `%Buf`, `%Vec<T>`, `%Map<V>`, `%IMap<V>` |
+| Tooling | `--check` bounds traps, `--json` diagnostics, ELF symbols for gdb/perf, all errors in one run, two differential fuzzers, `tools/restyle.py` |
 
 ## What you can build with it
 
@@ -153,8 +155,8 @@ because it *is* gcc's optimiser working on VIBE's program. The native
 backend — a dozen optimisation passes in Python, no toolchain at all — runs
 about 2x faster than `gcc -O0` and within about 1.6x of `gcc -O2`.
 
-A native VIBE binary is 2 KB where the equivalent static C binary is 785 KB,
-because there is no libc to carry.
+A native VIBE hello world is 912 bytes (319 stripped) where the equivalent
+static C binary is 785 KB, because there is no libc to carry.
 
 ```
 python3 bench/run.py
@@ -162,7 +164,7 @@ python3 bench/run.py
 
 ## Status
 
-v0.2. Everything in the table above works on all three build paths and is
+v0.3. Everything in the table above works on all three build paths and is
 covered by the test suite. Deliberately absent: closures, methods,
 exceptions, garbage collection. The native backend targets x86-64 Linux
 only. See the end of SPEC.md.

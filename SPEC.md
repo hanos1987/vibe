@@ -1,4 +1,4 @@
-# VIBE — Language Specification v0.2
+# VIBE — Language Specification v0.3
 
 VIBE is a systems language with **no natural-language keywords**. Every
 construct is a sigil. It compiles straight to x86-64 machine code: `vibec`
@@ -56,6 +56,9 @@ The whole language, in one table.
 | `@<` | declare a C function | `@< "m" pow (f64, f64) f64` |
 | `<T>` | type parameters and arguments | `%Vec<T> { }`, `@ push<T> (...)`, `%Vec<s64>` |
 | `<<"f" ns` | include under a namespace | `<<"geom.vibe" g` then `g.area(p)` |
+| `x.f(a)` | method call: `f(x, a)`, or `f(&x, a)` | `v.push(3)` |
+| `e!` | unwrap a `%Res`/`%Opt`, or return its failure | `$ n = parse(s)!` |
+| `\fmt` `\print` `\eprint` | formatting | `\print("x={} y={.2}\n", x, y)` |
 | `&` | address of | `&x` |
 | `'` | dereference (postfix) | `p'` |
 | `.` | field | `p.x` |
@@ -145,9 +148,11 @@ $ names [2]%Str = ["off", "on"]
 $ cmds [2]%Cmd = [%Cmd{ name: "dbl", run: @dbl }, %Cmd{ name: "neg", run: @neg }]
 ```
 
-A short array literal leaves the rest zeroed. `$$` constants are inlined at
-every use, have no address, and may be built from other `$$` constants and
-from `#T`.
+A short array literal leaves the rest zeroed. A global set to a plain
+integer or float literal needs no type: `$~ total = 0` is an `s64`,
+`$ rate = 0.5` an `f64`. `$$` constants are inlined at every use, have no
+address, and may be built from other `$$` constants, `#T`, and (for floats)
+literals, casts and arithmetic: `$$ TAU f64 = 2.0 * 3.14159`.
 
 Functions take any number of parameters. A function with a return type
 must return on every path; falling off the end is a compile error.
@@ -397,6 +402,58 @@ checked; the register allocator does not know what they touch.
 
 ---
 
+### Methods
+
+`x.f(a)` calls `f(x, a)` whenever `x` has no field named `f` and a function
+`f` exists. When `f`'s first parameter is a pointer, `x` is passed by
+address, so mutating "methods" work on plain values:
+
+```
+@ push<T> (w *%Vec<T>, x T) v { ... }
+@ len<T> (w %Vec<T>) s64 { ^ w.n }
+
+v.push(3)          ; push(&v, 3)
+v.len()            ; len(v)
+```
+
+Any function is a method of its first argument. There is no receiver
+type, no dispatch table and no hidden `this`.
+
+### Results and `!`
+
+`std.vibe` defines two generic sum types:
+
+```
+%| Res<T, E> { |Ok(T) |Err(E) }
+%| Opt<T>    { |Some(T) |None }
+```
+
+A postfix `!` on a `%Res<T, E>` value yields the `T`, or returns the `Err`
+from the enclosing function, which must itself return a `%Res<_, E>` with
+the same `E`. On a `%Opt<T>` it yields the `T` or returns `%Opt|None`.
+Deferred statements run on that early return like on any other.
+
+```
+@ calc (a s64, b s64) %Res<s64, %Str> {
+  $ q = div(a, b)!
+  $ h = half(q)!
+  ^ %Res|Ok(h + 1)
+}
+```
+
+### Formatting
+
+```
+\print("x={} y={.2} hex={x} c={c} {{literal}}\n", x, y, n, ch)
+\eprint("bad input: {}\n", line)
+$ s = \fmt("{}-{}", a, b)        ; a heap %Str; del(s.p) when done
+```
+
+`{}` prints by type: integers in decimal, floats with six decimals, `%Str`
+and `*u8` as text, `b` as 0/1, other pointers in hex. `{.N}` sets a float's
+decimals, `{x}` prints an integer in hex, `{c}` a `u8` as a character.
+Formatting needs `<<"heap.vibe"`.
+
 ### Intrinsics
 
 `\name(...)` is an operation the compiler emits directly, usually as one
@@ -538,6 +595,11 @@ read from it. Everything else below is ordinary VIBE.
 | `seq` | `(a %Str, b %Str) b` | compare strings |
 | `abs` `min` `max` | `(s64 ...) s64` | integer helpers |
 | `lock` `unlock` | `(l *s64) v` | spin lock; the s64 starts at 0 |
+| `ssub` `sidx` `sfind` `sstarts` `sends` `strim` | string views | slice, search, trim; nothing is copied |
+| `stok` | `(rest *%Str, sep u8, done *b) %Str` | next field up to `sep` |
+| `sint` `sfloat` | `(s %Str)` | parse a decimal integer / float |
+| `uchars` `ulen` | UTF-8 | character count, bytes in a character |
+| `%Res<T,E>` `%Opt<T>` | | see section 7 |
 | `print` `println` `printi` `printiln` `eprint` `exit` `copy` `fill` `cstrlen` | | long names for `ps`, `ps`+`nl`, `pn`, `pnl`, `pe`, `ex`, `cp`, `set`, `ln` |
 
 ### System (`sys.vibe`, included by `std.vibe`)
@@ -567,12 +629,13 @@ read from it. Everything else below is ordinary VIBE.
 | `new` | `(n s64) *u8` | allocate; thread-safe |
 | `del` | `(p *u8) v` | free; `del(0)` is a no-op |
 | `renew` | `(p *u8, n s64) *u8` | resize, keeping contents |
-| `%Buf` `bnew` `bpc` `bpb` `bps` `bpn` `bstr` `bfree` | | growable byte buffer / string builder |
-| `%Vec` `vnew` `vpush` `vpop` `vfree` | | growable array of `s64` (`w.p[i]` to index) |
-| `%Map` `mnew` `mset` `mget` `mhas` `mdel` `mfree` | | hash map from `%Str` to `s64` |
+| `%Buf` `bnew` `bpc` `bpb` `bps` `bpn` `bpu` `bpf` `bpx` `bstr` `bfree` | | growable byte buffer / string builder |
+| `%Vec<T>` `vnew` `vpush` `vpop` `vlast` `vdel` `vreserve` `vfree` | | growable array (`w.p[i]` to index, `w.n` elements) |
+| `%Map<V>` `mnew` `mset` `mget` `mref` `mhas` `mdel` `mfree` | | hash map from `%Str` to V (keys are not copied) |
+| `%IMap<V>` `inew` `iset` `iget` `ihas` `idel` `ifree` | | hash map from `s64` to V |
 
-For containers of other types, write them generically (section 8); `new`,
-`renew` and `del` are the allocator to build on.
+All take the container by pointer, so `v.vpush(x)` and `m.mget("k", 0)`
+read naturally.
 
 ### Threads (`thread.vibe`, include it yourself)
 
@@ -580,6 +643,10 @@ For containers of other types, write them generically (section 8); `new`,
 |---|---|---|
 | `spawn` | `(f @(s64) v, arg s64) *%Thread` | run `f(arg)` on a new kernel thread with its own 1 MB stack |
 | `join` | `(t *%Thread) v` | wait for it and release its stack |
+| `%Lock` `acquire` `release` | `(l *%Lock) v` | a lock whose waiters sleep (futex); for anything but tiny sections |
+
+Each thread stack has an inaccessible guard page below it, so an overflow
+traps instead of corrupting memory.
 
 Threads share all memory. Protect shared data with `lock`/`unlock`, or with
 `\cas` / `\xadd`. Memory that another thread may change outside a lock must
@@ -614,7 +681,13 @@ vibec prog.vibe --emit-c    print the generated C
 vibec prog.vibe --check     trap, with file:line, on a bad array index or
                             a division by zero
 vibec prog.vibe --json      report errors as JSON on stdout
+vibec prog.vibe -s          strip the symbol table
+python3 tools/restyle.py f.vibe   rewrite a file in the economical style
 ```
+
+Native binaries carry an ELF symbol table, so `gdb`, `perf` and `objdump`
+name VIBE functions; `-s` drops it (a stripped hello world is about 300
+bytes).
 
 **Two backends, one language.** The native backend needs nothing but
 Python and is the default: builds are instant and the binaries are tiny.
