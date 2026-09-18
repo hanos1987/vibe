@@ -262,7 +262,17 @@ class CodeGen:
             else:
                 raise Exception("bad fixup kind " + kind)
             code[off:off + 4] = struct.pack("<i", val)
-        return elf.build_elf(bytes(code), bytes(self.ro), bytes(self.data), 0)
+        # function symbols, so gdb/perf/objdump can name what runs
+        fnames = [(n, off) for (n, off) in a.labels.items()
+                  if not n.startswith(".")]
+        fnames.sort(key=lambda x: x[1])
+        syms = []
+        for k, (n, off) in enumerate(fnames):
+            end = fnames[k + 1][1] if k + 1 < len(fnames) else len(code)
+            syms.append(("vibe_entry" if n == "@!" else n, off, end - off))
+        syms.append(("_start", 0, fnames[0][1] if fnames else 0))
+        return elf.build_elf(bytes(code), bytes(self.ro), bytes(self.data), 0,
+                             () if getattr(self, "strip", False) else syms)
 
     # ------------------------------------------------------- one function
     def gen_func(self, f):
@@ -1007,5 +1017,7 @@ class CodeGen:
         self.done(d, r)
 
 
-def compile_program(prog, opt=True):
-    return CodeGen(prog, opt).run()
+def compile_program(prog, opt=True, strip=False):
+    cg = CodeGen(prog, opt)
+    cg.strip = strip
+    return cg.run()

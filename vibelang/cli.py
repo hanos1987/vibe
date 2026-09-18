@@ -6,6 +6,7 @@
   vibec prog.vibe -O0          no optimisation, no register allocation
   vibec prog.vibe --backend c  build through gcc/clang -O3 (fastest code)
   vibec prog.vibe --emit-c     print the generated C
+  vibec prog.vibe -s           strip the symbol table from the binary
   vibec prog.vibe --check      trap, with file:line, on a bad index or divide by zero
   vibec prog.vibe --json       report errors as JSON on stdout
   vibec --version              print the version
@@ -57,6 +58,7 @@ def main(argv=None):
     explicit_backend = False
     as_json = False
     check = False
+    strip = False
     i = 1
     while i < len(argv):
         x = argv[i]
@@ -86,6 +88,8 @@ def main(argv=None):
             if backend not in ("native", "c"):
                 sys.stderr.write("vibec: --backend is native or c\n")
                 return 2
+        elif x in ("-s", "--strip"):
+            strip = True
         elif x == "--check":
             check = True
         elif x == "--json":
@@ -151,7 +155,7 @@ def main(argv=None):
             sys.stderr.write("vibec: %s\n" % e)
             return 1
     else:
-        blob = compile_program(prog, opt=not noopt)
+        blob = compile_program(prog, opt=not noopt, strip=strip)
 
     if mode == "run":
         fd, path = tempfile.mkstemp(prefix="vibe-")
