@@ -236,6 +236,21 @@ def allocate(f):
             return r in CALLEE_SAVED
         return r not in x
 
+    # what a register is worth to each value: every use or definition
+    # counts 8x more per enclosing loop, so a hot loop's operands win a
+    # register over a value merely live across the loop
+    from .opt import find_loops
+    loops = find_loops(f)
+    depth = [0] * len(f.ins)
+    for (lo, hi) in loops:
+        for k in range(lo, hi + 1):
+            depth[k] += 1
+    weight = {}
+    for k, ins_ in enumerate(f.ins):
+        w = 8 ** min(depth[k], 5)
+        for u in list(uses_of(ins_)) + list(defs_of(ins_)):
+            weight[u] = weight.get(u, 0) + w
+
     same, phys = build_hints(f)
     order = sorted(start.keys(), key=lambda v: (start[v], end[v]))
     loc = {}
@@ -288,18 +303,17 @@ def allocate(f):
             continue
         cands = [r for r in free_gp if ok(r, x)]
         if not cands:
-            # nothing free: evict the active value whose live range ends
-            # furthest away, which is the one that benefits least from a
-            # register (classic linear-scan spill heuristic)
+            # nothing free: evict the active value a register is worth
+            # least to, if it is worth less than to this one
             best = None
             for k2, (e2, v2, r2, f2) in enumerate(active):
                 if f2:
                     continue
                 if not ok(r2, x):
                     continue
-                if best is None or e2 > active[best][0]:
+                if best is None or weight.get(v2, 0) < weight.get(active[best][1], 0):
                     best = k2
-            if best is not None and active[best][0] > end[v]:
+            if best is not None and weight.get(active[best][1], 0) < weight.get(v, 0):
                 e2, v2, r2, f2 = active.pop(best)
                 loc[v2] = ("m",)
                 loc[v] = ("r", r2)

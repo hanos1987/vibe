@@ -516,6 +516,44 @@ def cse(f):
     return True
 
 
+# operations whose low bits depend only on their operands' low bits
+LOW_ONLY = {"+", "-", "*", "&", "|", "^", "<<"}
+
+
+def skip_narrow(f):
+    """A narrow-typed result feeding only low-bits-only operations of the
+    same width (or a conversion to a width no wider) need not be sign- or
+    zero-extended after every step: the consumer extends its own result."""
+    uses = {}
+    for ins in f.ins:
+        for u in uses_of(ins):
+            uses.setdefault(u, []).append(ins)
+    changed = False
+    for ins in f.ins:
+        if ins.op not in ("bin", "bini") or ins.b not in LOW_ONLY:
+            continue
+        ty = ins.e
+        if ty is None or ty.kind != "int" or ty.size == 8:
+            continue
+        us = uses.get(ins.a, [])
+        if not us:
+            continue
+        good = True
+        for u in us:
+            if u.op in ("bin", "bini") and u.b in LOW_ONLY \
+                    and u.e is not None and u.e.kind == "int" \
+                    and u.e.size == ty.size and u.e.signed == ty.signed:
+                continue
+            if u.op == "cvt" and u.d.kind == "int" and u.d.size <= ty.size:
+                continue
+            good = False
+            break
+        if good:
+            ins.e = None
+            changed = True
+    return changed
+
+
 def coalesce_movs(f):
     """`op d, ...` immediately followed by `mov v, d`, with d used nowhere
     else: write the result straight into v. This is the shape every loop
@@ -895,6 +933,7 @@ def optimise(prog):
             c |= dce(f)
             c |= cse(f)
             c |= coalesce_movs(f)
+            c |= skip_narrow(f)
             c |= fuse_branches(f)
             c |= clean_labels(f)
             c |= licm(f)
