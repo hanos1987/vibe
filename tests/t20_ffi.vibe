@@ -3,12 +3,14 @@
 ; out: 3
 ; out: 1024.00
 ; out: 1
+; out: 4
 <<"std.vibe"
 
 @< "c" printf (fmt *u8, ...) s32
 @< "c" strlen (s *u8) u64
 @< "c" fflush (f *u8) s32
 @< "m" pow (f64, f64) f64
+@< "c" cabs = abs (s32) s32
 
 @! () s64 {
   printf("hello from C %lld %.2f\n".p, 42, 2.5)
@@ -16,5 +18,7 @@
   pnl(s64(strlen("abc".p)))
   pfl(pow(2.0, 10.0), 2)
   pnl(argc())
+  pnl(s64(cabs(-4)))
   ^ 0
 }
+/bin/bash: line 1: unalias: unsetenv: not found

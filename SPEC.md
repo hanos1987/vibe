@@ -431,6 +431,8 @@ instruction.
 
 `@< "lib" name (types) ret` declares a function from a C library; `"c"` is
 libc, anything else is linked with `-l<lib>`. Parameter names are optional.
+When the C name collides with a VIBE name, give it another:
+`@< "c" cabs = abs (s32) s32` calls C's `abs` as `cabs`.
 Arguments and results are scalars and pointers. After `...`, integers and
 pointers are passed as 64-bit and floats as `f64`. Pass `s.p`, never a
 `%Str`; string literals are NUL-terminated for exactly this purpose. A

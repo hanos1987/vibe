@@ -39,7 +39,7 @@ TNamed = _mk("TNamed", ["name", "targs"])          # %Point
 TFn = _mk("TFn", ["params", "ret"])       # @(s64, s64) s64
 
 # ---- declarations ----------------------------------------------------------
-ExternDecl = _mk("ExternDecl", ["lib", "name", "params", "ret", "variadic"])
+ExternDecl = _mk("ExternDecl", ["lib", "name", "params", "ret", "variadic", "csym"])
 FnDecl = _mk("FnDecl", ["name", "params", "ret", "body", "entry", "pub", "tparams"])
 StructDecl = _mk("StructDecl", ["name", "fields", "tparams"])
 SumDecl = _mk("SumDecl", ["name", "variants", "tparams"])

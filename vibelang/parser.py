@@ -143,6 +143,10 @@ class Parser:
             self.err("expected the library name, e.g. @< \"c\" puts (*u8) s32")
         lib = self.next().val.decode("utf-8")
         name = self.expect_id("function name")
+        csym = name
+        if self.eat("="):
+            # @< "c" cabs = abs (s32) s32 : VIBE name, then the C symbol
+            csym = self.expect_id("C symbol name")
         self.expect("(", "to open the parameter list")
         params = []
         variadic = False
@@ -159,7 +163,7 @@ class Parser:
         self.expect(")", "to close the parameter list")
         ret = self.parse_type()
         self.end_stmt()
-        return A.ExternDecl(lib, name, params, ret, variadic,
+        return A.ExternDecl(lib, name, params, ret, variadic, csym,
                             line=t.line, col=t.col)
 
     def parse_fn(self):

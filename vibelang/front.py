@@ -467,7 +467,7 @@ class Front:
                         self.err(d, "an extern function takes and returns "
                                     "scalars and pointers only, not %s" % t)
                 self.fns[d.name] = FnT(ps, rt)
-                self.prog.externs[d.name] = (d.lib, ps, rt, d.variadic)
+                self.prog.externs[d.name] = (d.lib, ps, rt, d.variadic, d.csym)
             if isinstance(d, A.FnDecl):
                 if d.name in self.fns:
                     self.err(d, "function %r declared twice" % d.name)

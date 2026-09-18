@@ -156,9 +156,9 @@ class CGen:
                         ",".join(str(b) for b in blob)))
         for f in self.prog.funcs:
             o.append(self.proto(f) + ";")
-        for name, (lib, ps, rt, variadic) in self.prog.externs.items():
+        for name, (lib, ps, rt, variadic, csym) in self.prog.externs.items():
             args = [ctype(t) for t in ps] + (["..."] if variadic else [])
-            o.append("extern %s %s(%s);" % (ctype(rt), name,
+            o.append("extern %s %s(%s);" % (ctype(rt), csym,
                                             ", ".join(args) or "void"))
         if self.prog.externs:
             # hosted: the C runtime owns _start; recover the kernel's stack
@@ -280,7 +280,7 @@ class CGen:
                         parts.append("(%s)v%d" % (ctype(ps[k]), v))
                     else:
                         parts.append("v%d" % v)
-                call = "%s(%s)" % (i.b, ", ".join(parts))
+                call = "%s(%s)" % (ext[4], ", ".join(parts))
                 if i.a is None:
                     o.append("  %s;" % call)
                 else:
@@ -406,7 +406,7 @@ def compile_program_c(prog, keep=None):
             for drop in ("-static", "-nostdlib", "-ffreestanding",
                          "-fno-pie", "-no-pie"):
                 flags.remove(drop)
-            for (lib, _, _, _) in prog.externs.values():
+            for (lib, _, _, _, _) in prog.externs.values():
                 if lib not in ("c", "") and "-l" + lib not in libs:
                     libs.append("-l" + lib)
         r = subprocess.run([cc] + flags + extra + [cpath, "-o", bpath] + libs,
