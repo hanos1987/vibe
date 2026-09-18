@@ -475,22 +475,36 @@ def cse(f):
     while stack:
         b = stack.pop()
         table = tables[b]
+        # values whose operands may change (loop counters) are reused only
+        # within the block, up to the next write to an operand; constants
+        # too, so a shared constant never has to live across a loop
+        local = {}
         for k in range(blocks[b].start, blocks[b].end + 1):
             ins = f.ins[k]
             key = _cse_key(ins)
+            ds = defs_of(ins)
+            if ds:
+                dd = ds[0]
+                for lk in [lk for lk, (lv, ops) in local.items() if dd in ops]:
+                    del local[lk]
             if key is None:
                 continue
-            d = defs_of(ins)[0]
+            d = ds[0]
             if cnt.get(d, 0) != 1:
                 continue
-            if any(cnt.get(u, 0) != 1 for u in uses_of(ins)):
-                continue
-            prev = table.get(key)
+            uses = list(uses_of(ins))
+            stable = all(cnt.get(u, 0) == 1 for u in uses) \
+                and ins.op not in ("const", "fconst")
+            prev = table.get(key) if stable else None
+            if prev is None and key in local:
+                prev = local[key][0]
             if prev is not None:
                 mapping[d] = prev
                 drop.add(k)
-            else:
+            elif stable:
                 table[key] = d
+            else:
+                local[key] = (d, set(uses))
         for c in children[b]:
             tables[c] = dict(table)
             stack.append(c)
