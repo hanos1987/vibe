@@ -564,10 +564,10 @@
 
       <div class="panel" id="p-apt" role="tabpanel" aria-labelledby="tab-apt">
         <button class="copy" type="button">COPY</button>
-<pre>curl -fsSLO https://github.com/hanos1987/vibe/releases/download/v0.2.0/vibe_0.2.0_all.deb
-
-sudo apt install ./vibe_0.2.0_all.deb</pre>
-        <div class="note">Installs the <code>vibe</code> package with a man page and examples. An APT repository, for a plain <code>sudo apt install vibe</code>, is coming.</div>
+<pre>curl -fsSL https://benjiapps.com/vibe/apt/vibe.gpg | sudo tee /usr/share/keyrings/vibe.gpg >/dev/null
+echo "deb [signed-by=/usr/share/keyrings/vibe.gpg] https://benjiapps.com/vibe/apt stable main" | sudo tee /etc/apt/sources.list.d/vibe.list
+sudo apt update &amp;&amp; sudo apt install vibe</pre>
+        <div class="note">A signed APT repository. Installs the <code>vibe</code> package with a man page and examples; the <code>.deb</code> is also under Downloads below.</div>
       </div>
 
       <div class="panel" id="p-nix" role="tabpanel" aria-labelledby="tab-nix" hidden>
