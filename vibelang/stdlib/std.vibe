@@ -184,6 +184,20 @@
   ^ b
 }
 
+; ---- results ----------------------------------------------------------------
+; `x!` on a %Res unwraps Ok or returns the Err from the current function;
+; on a %Opt it unwraps Some or returns None.
+
+%| Res<T, E> {
+  |Ok(T)
+  |Err(E)
+}
+
+%| Opt<T> {
+  |Some(T)
+  |None
+}
+
 ; ---- spin lock ---------------------------------------------------------------
 ; A lock is an s64 that starts at 0. Short critical sections only.
 

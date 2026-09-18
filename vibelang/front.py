@@ -132,8 +132,11 @@ class Front:
         decls = parse(src, os.path.basename(path),
                       self.scan_generics(path, set()))
         here = os.path.dirname(path)
+        std = any(path.startswith(os.path.abspath(x) + os.sep)
+                  for x in self.include_dirs)
         for d in decls:
             d._file = os.path.basename(path)
+            d._std = std
         for d in decls:
             if isinstance(d, A.Include):
                 cand = [os.path.join(here, d.path)]
@@ -362,6 +365,18 @@ class Front:
         return True
 
     def collect(self):
+        # a program's own declaration replaces a library one of the same
+        # name, so nothing in std.vibe can ever be in a program's way
+        mine = set()
+        for fn, d in self.decls:
+            n = getattr(d, "name", None)
+            if n and not getattr(d, "_std", False):
+                mine.add((type(d).__name__, n))
+        if mine:
+            self.decls = [(fn, d) for (fn, d) in self.decls
+                          if not (getattr(d, "_std", False) and
+                                  (type(d).__name__, getattr(d, "name", None))
+                                  in mine)]
         generic = [(fn, d) for (fn, d) in self.decls
                    if getattr(d, "tparams", None)]
         self.decls = [(fn, d) for (fn, d) in self.decls
@@ -1233,6 +1248,64 @@ class Front:
             return v, ty
         self.err(e, "%s has no fields" % ty)
 
+    def lower_try(self, e):
+        """x! on a %Res<T,E> yields the T, or returns %Res|Err(e) from the
+        enclosing function; on a %Opt<T> yields the T or returns None."""
+        f = self.f
+        v, ty = self.rval(e.e, None)
+        tmpl = getattr(ty, "template", None)
+        if tmpl not in ("Res", "Opt"):
+            self.err(e, "! applies to a %%Res or %%Opt value, not %s" % ty)
+        rt = self.cur_ret
+        if getattr(rt, "template", None) != tmpl:
+            self.err(e, "! returns a %s failure, but this function returns %s"
+                     % (ty, rt))
+        if tmpl == "Res" and rt.targs[1] != ty.targs[1]:
+            self.err(e, "! would return an %s error from a function whose "
+                        "error type is %s" % (ty.targs[1], rt.targs[1]))
+        good = ty.variant("Ok" if tmpl == "Res" else "Some")[1]
+        tag = f.vreg()
+        f.emit("load", tag, v, 8, False, False)
+        z = f.vreg()
+        f.emit("const", z, 0)
+        ok = f.vreg()
+        f.emit("cmp", ok, "==", tag, z, False)
+        lok = f.label("try_ok")
+        lbad = f.label("try_bad")
+        f.emit("br", ok, lok, lbad)
+        f.emit("label", lbad)
+        # build the failure in the return slot, then leave
+        one = f.vreg()
+        f.emit("const", one, 1)
+        f.emit("store", self.cur_sret, one, 8, False)
+        if tmpl == "Res":
+            bad = ty.variant("Err")[1]
+            rbad = rt.variant("Err")[1]
+            et = bad[1][0]
+            src = f.vreg()
+            o1 = f.vreg()
+            f.emit("const", o1, bad[2][0])
+            f.emit("bin", src, "+", v, o1, U64)
+            dst = f.vreg()
+            o2 = f.vreg()
+            f.emit("const", o2, rbad[2][0])
+            f.emit("bin", dst, "+", self.cur_sret, o2, U64)
+            f.emit("memcpy", dst, src, et.size)
+        self.run_defers(0)
+        f.emit("ret", self.cur_sret, False)
+        f.emit("label", lok)
+        pt = good[1][0]
+        pa = f.vreg()
+        po = f.vreg()
+        f.emit("const", po, good[2][0])
+        f.emit("bin", pa, "+", v, po, U64)
+        if pt.is_agg:
+            return pa, pt
+        r = f.vreg(pt.kind == "float")
+        f.emit("load", r, pa, pt.size, pt.kind == "int" and pt.signed,
+               pt.kind == "float")
+        return r, pt
+
     # -- rvalues -------------------------------------------------------------
     def rval(self, e, want):
         f = self.f
@@ -1284,6 +1357,8 @@ class Front:
             v = f.vreg()
             f.emit("const", v, self.resolve(e.ty).size)
             return v, S64
+        if isinstance(e, A.Try):
+            return self.lower_try(e)
 
         if isinstance(e, A.Ident):
             ent = self.scope.get(e.name)

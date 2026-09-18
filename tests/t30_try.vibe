@@ -1,0 +1,76 @@
+; %Res / %Opt and the ! operator
+; out: 21
+; out: err bad denominator
+; out: 5
+; out: none
+<<"std.vibe"
+
+@ half (x s64) %Res<s64, %Str> {
+  ? (x % 2) != 0 {
+    ^ %Res|Err("odd")
+  }
+  ^ %Res|Ok(x / 2)
+}
+
+@ div (a s64, b s64) %Res<s64, %Str> {
+  ? b == 0 {
+    ^ %Res|Err("bad denominator")
+  }
+  ^ %Res|Ok(a / b)
+}
+
+@ calc (a s64, b s64) %Res<s64, %Str> {
+  $ q = div(a, b)!
+  $ h = half(q)!
+  ^ %Res|Ok(h + 1)
+}
+
+@ find (p *s64, n s64, x s64) %Opt<s64> {
+  * i 0 n {
+    ? p[i] == x {
+      ^ %Opt|Some(i)
+    }
+  }
+  ^ %Opt|None
+}
+
+@ after (p *s64, n s64, x s64) %Opt<s64> {
+  $ i = find(p, n, x)!
+  ^ %Opt|Some(p[i + 1])
+}
+
+@ show (r %Res<s64, %Str>) v {
+  ?? r {
+    |Ok(v) {
+      pnl(v)
+    }
+    |Err(m) {
+      ps("err ")
+      ps(m)
+      nl()
+    }
+  }
+}
+
+@! () s64 {
+  show(calc(80, 2))
+  show(calc(1, 0))
+  $ xs [4]s64 = [1, 3, 5, 7]
+  ?? after(&xs[0], 4, 3) {
+    |Some(v) {
+      pnl(v)
+    }
+    |None {
+      ps("none\n")
+    }
+  }
+  ?? after(&xs[0], 4, 9) {
+    |Some(v) {
+      pnl(v)
+    }
+    |None {
+      ps("none\n")
+    }
+  }
+  ^ 0
+}

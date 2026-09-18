@@ -3,13 +3,14 @@ so diagnostics are always precise."""
 
 
 class Node:
-    __slots__ = ("line", "col", "ty", "_file")
+    __slots__ = ("line", "col", "ty", "_file", "_std")
 
     def __init__(self, line=0, col=0):
         self.line = line
         self.col = col
         self.ty = None
         self._file = None
+        self._std = False
 
 
 def _mk(name, fields):
@@ -79,6 +80,7 @@ Syscall = _mk("Syscall", ["num", "args"])
 Index = _mk("Index", ["base", "idx"])
 Field = _mk("Field", ["base", "name"])
 Deref = _mk("Deref", ["p"])
+Try = _mk("Try", ["e"])                     # e!  unwrap Ok/Some or return the Err/None
 Addr = _mk("Addr", ["e"])
 Cast = _mk("Cast", ["ty", "e"])
 SizeOf = _mk("SizeOf", ["ty"])
