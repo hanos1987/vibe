@@ -155,6 +155,10 @@ because it *is* gcc's optimiser working on VIBE's program. The native
 backend — a dozen optimisation passes in Python, no toolchain at all — runs
 about 2x faster than `gcc -O0` and within about 1.6x of `gcc -O2`.
 
+Token cost matters when a model writes the code. On the same four programs,
+idiomatic VIBE costs 0.99x the tokens of the C (o200k tokenizer;
+`python3 tools/tokens.py`), with no operator precedence to get wrong.
+
 A native VIBE hello world is 912 bytes (319 stripped) where the equivalent
 static C binary is 785 KB, because there is no libc to carry.
 

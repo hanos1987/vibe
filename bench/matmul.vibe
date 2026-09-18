@@ -1,45 +1,33 @@
-; nested loops and array indexing: 300x300 integer matrix multiply
+; nested loops and array indexing: 400x400 integer matrix multiply
 <<"std.vibe"
 
 @! () s64 {
   $ n = 400
-  $ sz s64 = ((n * n) * 8)
+  $ sz = (n * n) * 8
   $ a *s64 = *s64(mm(sz))
   $ b *s64 = *s64(mm(sz))
   $ c *s64 = *s64(mm(sz))
 
-  $~ i = 0
-  * i < n {
-    $~ j = 0
-    * j < n {
-      a[((i * n) + j)] = ((i + j) % 7)
-      b[((i * n) + j)] = ((i - j) % 5)
-      j += 1
+  * i 0 n {
+    * j 0 n {
+      a[(i * n) + j] = (i + j) % 7
+      b[(i * n) + j] = (i - j) % 5
     }
-    i += 1
   }
 
-  i = 0
-  * i < n {
-    $~ j = 0
-    * j < n {
+  * i 0 n {
+    * j 0 n {
       $~ s = 0
-      $~ k = 0
-      * k < n {
-        s += a[((i * n) + k)] * b[((k * n) + j)]
-        k += 1
+      * k 0 n {
+        s += a[(i * n) + k] * b[(k * n) + j]
       }
-      c[((i * n) + j)] = s
-      j += 1
+      c[(i * n) + j] = s
     }
-    i += 1
   }
 
   $~ sum = 0
-  i = 0
-  * i < (n * n) {
+  * i 0 (n * n) {
     sum += c[i]
-    i += 1
   }
   pnl(sum)
   ^ 0
