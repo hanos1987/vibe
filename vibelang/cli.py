@@ -24,7 +24,7 @@ from .parser import ParseError
 from .lexer import LexError
 from .codegen import compile_program
 
-VERSION = "0.3.1"
+VERSION = "0.4.0"
 
 USAGE = __doc__
 
@@ -139,6 +139,13 @@ def main(argv=None):
         from .cback import emit_c
         sys.stdout.write(emit_c(prog))
         return 0
+
+    if prog.wide_vectors and backend == "native":
+        if explicit_backend:
+            sys.stderr.write("vibec: 256-bit vectors (f32x8 f64x4 s32x8) need "
+                             "--backend=c\n")
+            return 1
+        backend = "c"
 
     if prog.externs and backend == "native":
         if explicit_backend:

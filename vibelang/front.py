@@ -21,6 +21,11 @@ class CheckError(Exception):
     pass
 
 
+def isfp(t):
+    """Does a value of this type travel in an xmm register?"""
+    return t.kind in ("float", "vec")
+
+
 def has_side_effects(e):
     if isinstance(e, (A.Call, A.CallP, A.Syscall, A.Intrinsic, A.Try)):
         return True
@@ -95,6 +100,34 @@ class Front:
         self.prog.globals["$g___sp"] = (8, 8, None)
 
     # -- errors --------------------------------------------------------------
+    def newv(self, ty):
+        """A fresh virtual register fit to hold a value of type ty."""
+        f = self.f
+        if ty.kind == "vec":
+            v = f.vreg(True)
+            f.vec_vregs[v] = ty
+            if ty.size > 16:
+                self.prog.wide_vectors = True
+            return v
+        return f.vreg(ty.kind == "float")
+
+    def ld(self, addr, ty):
+        f = self.f
+        v = self.newv(ty)
+        if ty.kind == "vec":
+            f.emit("intr", v, "vload", [addr], None, ty)
+        else:
+            f.emit("load", v, addr, ty.size,
+                   ty.kind == "int" and ty.signed, ty.kind == "float")
+        return v
+
+    def st(self, addr, v, ty):
+        f = self.f
+        if ty.kind == "vec":
+            f.emit("intr", None, "vstore", [addr, v], None, ty)
+        else:
+            f.emit("store", addr, v, ty.size, ty.kind == "float")
+
     def err(self, node, msg):
         raise CheckError("%s:%d:%d: %s" % (
             (getattr(node, "_file", None) or self.file), node.line, node.col, msg))
@@ -714,13 +747,13 @@ class Front:
                 f.emit("memcpy", dst, pv, pty.size)
                 self.scope.put(pname, ("slot", s, pty, False))
             else:
-                pv = f.vreg(pty.kind == "float")
+                pv = self.newv(pty)
                 f.params.append((pname, pty, pv))
                 if pname in taken:
                     s = f.slot(pty.size, pty.align, pname)
                     av = f.vreg()
                     f.emit("lea", av, s)
-                    f.emit("store", av, pv, pty.size, pty.kind == "float")
+                    self.st(av, pv, pty)
                     self.scope.put(pname, ("slot", s, pty, True))
                 else:
                     self.scope.put(pname, ("vreg", pv, pty, True))
@@ -830,8 +863,10 @@ class Front:
                     f.emit("memzero", av, ty.size)
                     self.scope.put(s.name, ("slot", slot, ty, s.mut))
                     return
-                z = f.vreg(ty.kind == "float")
-                if ty.kind == "float":
+                z = self.newv(ty)
+                if ty.kind == "vec":
+                    f.emit("intr", z, "vzero", [], None, ty)
+                elif ty.kind == "float":
                     f.emit("fconst", z, 0.0, ty.bits)
                 else:
                     f.emit("const", z, 0)
@@ -839,7 +874,7 @@ class Front:
                     slot = f.slot(ty.size, ty.align, s.name)
                     av = f.vreg()
                     f.emit("lea", av, slot)
-                    f.emit("store", av, z, ty.size, ty.kind == "float")
+                    self.st(av, z, ty)
                     self.scope.put(s.name, ("slot", slot, ty, s.mut))
                 else:
                     self.scope.put(s.name, ("vreg", z, ty, s.mut))
@@ -863,10 +898,10 @@ class Front:
                 slot = f.slot(ty.size, ty.align, s.name)
                 av = f.vreg()
                 f.emit("lea", av, slot)
-                f.emit("store", av, v, ty.size, ty.kind == "float")
+                self.st(av, v, ty)
                 self.scope.put(s.name, ("slot", slot, ty, s.mut))
             else:
-                nv = f.vreg(ty.kind == "float")
+                nv = self.newv(ty)
                 f.emit("mov", nv, v)
                 self.scope.put(s.name, ("vreg", nv, ty, s.mut))
             return
@@ -905,7 +940,7 @@ class Front:
                     v = ta
                 f.emit("memcpy", addr, v, ty.size)
             else:
-                f.emit("store", addr, v, ty.size, ty.kind == "float")
+                self.st(addr, v, ty)
             return
 
         if isinstance(s, A.Return):
@@ -924,11 +959,11 @@ class Front:
             else:
                 if any(self.defers):
                     # the value is fixed before the deferred code runs
-                    keep = f.vreg(self.cur_ret.kind == "float")
+                    keep = self.newv(self.cur_ret)
                     f.emit("mov", keep, v)
                     v = keep
                 self.run_defers(0)
-                f.emit("ret", v, self.cur_ret.kind == "float")
+                f.emit("ret", v, isfp(self.cur_ret))
             return
 
         if isinstance(s, A.If):
@@ -1113,9 +1148,7 @@ class Front:
                         f.emit("memcpy", ca, pa, bty.size)
                         self.scope.put(bname, ("addr", ca, bty, False))
                     else:
-                        bv = f.vreg(bty.kind == "float")
-                        f.emit("load", bv, pa, bty.size, bty.kind == "int" and bty.signed,
-                               bty.kind == "float")
+                        bv = self.ld(pa, bty)
                         self.scope.put(bname, ("vreg", bv, bty, False))
             self.defers.append([])
             for st in body:
@@ -1310,15 +1343,19 @@ class Front:
         f.emit("bin", pa, "+", v, po, U64)
         if pt.is_agg:
             return pa, pt
-        r = f.vreg(pt.kind == "float")
-        f.emit("load", r, pa, pt.size, pt.kind == "int" and pt.signed,
-               pt.kind == "float")
+        r = self.ld(pa, pt)
         return r, pt
 
     # -- rvalues -------------------------------------------------------------
     def rval(self, e, want):
         f = self.f
         e = self.ns_fold(e)
+
+        if want is not None and want.kind == "vec" and self.is_lit(e):
+            v, vt = self.rval(e, want.elem)
+            d = self.newv(want)
+            f.emit("intr", d, "vsplat", [v], None, want)
+            return d, want
 
         if isinstance(e, A.IntLit) and want is not None \
                 and want.kind == "float":
@@ -1394,9 +1431,7 @@ class Front:
                     f.emit("leag", a, label)
                     if ty.is_agg:
                         return a, ty
-                    v = f.vreg(ty.kind == "float")
-                    f.emit("load", v, a, ty.size,
-                           ty.kind == "int" and ty.signed, ty.kind == "float")
+                    v = self.ld(a, ty)
                     return v, ty
                 self.err(e, "unknown name %r" % e.name)
             kind, val, ty, mut = ent
@@ -1405,17 +1440,13 @@ class Front:
             if kind == "addr":
                 if ty.is_agg:
                     return val, ty
-                v = f.vreg(ty.kind == "float")
-                f.emit("load", v, val, ty.size,
-                       ty.kind == "int" and ty.signed, ty.kind == "float")
+                v = self.ld(val, ty)
                 return v, ty
             a = f.vreg()
             f.emit("lea", a, val)
             if ty.is_agg:
                 return a, ty
-            v = f.vreg(ty.kind == "float")
-            f.emit("load", v, a, ty.size,
-                   ty.kind == "int" and ty.signed, ty.kind == "float")
+            v = self.ld(a, ty)
             return v, ty
 
         if isinstance(e, A.Addr):
@@ -1426,18 +1457,14 @@ class Front:
             a, ty = self.lval(e)
             if ty.is_agg:
                 return a, ty
-            v = f.vreg(ty.kind == "float")
-            f.emit("load", v, a, ty.size,
-                   ty.kind == "int" and ty.signed, ty.kind == "float")
+            v = self.ld(a, ty)
             return v, ty
 
         if isinstance(e, (A.Field, A.Index)):
             a, ty = self.lval(e)
             if ty.is_agg:
                 return a, ty
-            v = f.vreg(ty.kind == "float")
-            f.emit("load", v, a, ty.size,
-                   ty.kind == "int" and ty.signed, ty.kind == "float")
+            v = self.ld(a, ty)
             return v, ty
 
         if isinstance(e, A.Cast):
@@ -1518,7 +1545,7 @@ class Front:
                 if fty.is_agg:
                     f.emit("memcpy", a, v, fty.size)
                 else:
-                    f.emit("store", a, v, fty.size, fty.kind == "float")
+                    self.st(a, v, fty)
             return base, ty
 
         if isinstance(e, A.SumLit):
@@ -1545,7 +1572,7 @@ class Front:
                 if aty.is_agg:
                     f.emit("memcpy", a, av, aty.size)
                 else:
-                    f.emit("store", a, av, aty.size, aty.kind == "float")
+                    self.st(a, av, aty)
             return base, ty
 
         if isinstance(e, A.ArrLit):
@@ -1572,7 +1599,7 @@ class Front:
                 if elem.is_agg:
                     f.emit("memcpy", a, v, elem.size)
                 else:
-                    f.emit("store", a, v, elem.size, elem.kind == "float")
+                    self.st(a, v, elem)
             return base, ty
 
         raise CheckError("internal: unhandled expression %r" % (e,))
@@ -1582,7 +1609,8 @@ class Front:
     INTRINSICS = {"sqrt": 1, "bits": 1, "fbits": 1, "popcnt": 1, "clz": 1,
                   "ctz": 1, "bswap": 1, "rdtsc": 0, "cas": 3, "xadd": 2,
                   "pause": 0, "clone": 4, "load": 1, "store": 2,
-                  "fmt": -1, "print": -1, "eprint": -1}
+                  "fmt": -1, "print": -1, "eprint": -1,
+                  "vsum": 1, "vget": 2, "vsqrt": 1, "vmin": 2, "vmax": 2}
 
     def lower_intrinsic(self, e, want):
         f = self.f
@@ -1599,6 +1627,34 @@ class Front:
         def word(t):
             return (t.kind in ("int", "ptr")) and t.size == 8
 
+        if name in ("vsum", "vget", "vsqrt", "vmin", "vmax"):
+            v, t = self.rval(e.args[0], want if name not in ("vsum", "vget")
+                             else None)
+            if t.kind != "vec":
+                self.err(e, "\\%s needs a vector, got %s" % (name, t))
+            if name == "vsum":
+                d = self.newv(t.elem)
+                f.emit("intr", d, name, [v], None, t)
+                return d, t.elem
+            if name == "vget":
+                if not isinstance(e.args[1], A.IntLit) \
+                        or not (0 <= e.args[1].v < t.n):
+                    self.err(e, "\\vget takes a literal lane 0..%d" % (t.n - 1))
+                d = self.newv(t.elem)
+                f.emit("intr", d, name, [v], e.args[1].v, t)
+                return d, t.elem
+            if name == "vsqrt":
+                if t.elem.kind != "float":
+                    self.err(e, "\\vsqrt needs a float vector, got %s" % t)
+                d = self.newv(t)
+                f.emit("intr", d, name, [v], None, t)
+                return d, t
+            w, wt = self.rval(e.args[1], t)
+            if wt != t:
+                self.err(e, "\\%s: expected %s, got %s" % (name, t, wt))
+            d = self.newv(t)
+            f.emit("intr", d, name, [v, w], None, t)
+            return d, t
         if name == "sqrt":
             v, t = self.rval(e.args[0], want)
             if t.kind != "float":
@@ -1806,7 +1862,21 @@ class Front:
     def lower_cast(self, e, want):
         f = self.f
         to = self.resolve(e.ty)
+        if to.kind == "vec":
+            # f32x4(x): every lane gets x
+            v, vt = self.rval(e.e, to.elem)
+            if vt == to:
+                return v, to
+            if vt != to.elem:
+                self.err(e, "%s(...) broadcasts a %s, got %s"
+                         % (to, to.elem, vt))
+            d = self.newv(to)
+            f.emit("intr", d, "vsplat", [v], None, to)
+            return d, to
         v, vt = self.rval(e.e, None)
+        if vt.kind == "vec":
+            self.err(e, "a vector converts only to itself; use \\vget or "
+                        "\\vsum to get a scalar out")
         if vt.is_agg or to.is_agg:
             self.err(e, "cannot cast aggregates")
         if to == vt:
@@ -1817,7 +1887,7 @@ class Front:
             d = f.vreg()
             f.emit("cmp", d, "!=", v, z, False)
             return d, to
-        d = f.vreg(to.kind == "float")
+        d = self.newv(to)
         f.emit("cvt", d, v, vt, to)
         return d, to
 
@@ -1834,6 +1904,12 @@ class Front:
             f.emit("cmp", d, "==", v, z, False)
             return d, BOOL
         v, ty = self.rval(e.a, want)
+        if e.op == "-" and ty.kind == "vec":
+            z = self.newv(ty)
+            f.emit("intr", z, "vzero", [], None, ty)
+            d = self.newv(ty)
+            f.emit("intr", d, "vbin", [z, v], "-", ty)
+            return d, ty
         if e.op == "-":
             if ty.kind == "float":
                 d = f.vreg(True)
@@ -1896,6 +1972,18 @@ class Front:
 
     def finish_bin(self, e, op, a, at, b, bt):
         f = self.f
+        if at.kind == "vec" or bt.kind == "vec":
+            if at != bt:
+                self.err(e, "type mismatch: %s %s %s (broadcast a scalar "
+                            "with %s(x))" % (at, op, bt,
+                                             at if at.kind == "vec" else bt))
+            ok = ("+", "-", "*", "/") if at.elem.kind == "float" \
+                else ("+", "-", "*", "&", "|", "^")
+            if op not in ok:
+                self.err(e, "operator %r is not defined on %s" % (op, at))
+            d = self.newv(at)
+            f.emit("intr", d, "vbin", [a, b], op, at)
+            return d, at
         if op in CMP and (at.is_agg or bt.is_agg):
             if at == bt and at == self.types.get("Str") \
                     and op in ("==", "!=") and "seq" in self.fns:
@@ -2025,7 +2113,7 @@ class Front:
                 argf.append(False)
             else:
                 argv.append(v)
-                argf.append(pt.kind == "float")
+                argf.append(isfp(pt))
         for a in extra:
             # variadic tail: integers and pointers as 64-bit, floats as f64
             v, vt = self.rval(a, None)
@@ -2038,12 +2126,12 @@ class Front:
                 f.emit("cvt", d2, v, F32, F64)
                 v = d2
             argv.append(v)
-            argf.append(vt.kind == "float")
+            argf.append(isfp(vt))
         if sig.ret == VOID:
             f.emit("call", None, name, argv, argf, False)
             return None, VOID
-        d = f.vreg(sig.ret.kind == "float")
-        f.emit("call", d, name, argv, argf, sig.ret.kind == "float")
+        d = self.newv(sig.ret)
+        f.emit("call", d, name, argv, argf, isfp(sig.ret))
         if sig.ret.is_agg:
             return d, sig.ret
         return d, sig.ret
@@ -2087,10 +2175,7 @@ class Front:
             if bt.is_agg:
                 bv = ba           # an aggregate value is its address
             else:
-                bv = self.f.vreg(bt.kind == "float")
-                self.f.emit("load", bv, ba, bt.size,
-                            bt.kind == "int" and bt.signed,
-                            bt.kind == "float")
+                bv = self.ld(ba, bt)
         if name in self.fns:
             p0 = self.fns[name].params[0] if self.fns[name].params else None
             want_ptr = p0 is not None and p0.kind == "ptr"
@@ -2141,12 +2226,12 @@ class Front:
                 argf.append(False)
             else:
                 argv.append(v)
-                argf.append(pt.kind == "float")
+                argf.append(isfp(pt))
         if sig.ret == VOID:
             f.emit("calli", None, fv, argv, argf, False)
             return None, VOID
-        d = f.vreg(sig.ret.kind == "float")
-        f.emit("calli", d, fv, argv, argf, sig.ret.kind == "float")
+        d = self.newv(sig.ret)
+        f.emit("calli", d, fv, argv, argf, isfp(sig.ret))
         return d, sig.ret
 
 

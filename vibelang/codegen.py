@@ -99,7 +99,7 @@ class CodeGen:
             live.add(pv)
         for v in sorted(live):
             if self.loc.get(v, ("m",))[0] == "m":
-                cur += 8
+                cur += 16 if v in f.vec_vregs else 8
                 self.home[v] = -cur
         stack_needed = (cur > 0)
         self.save_off = {}
@@ -150,7 +150,10 @@ class CodeGen:
         l = self.loc[v]
         if l[0] == "x":
             return l[1]
-        self.asm.movsd_load(scratch, self.va(v), 64)
+        if v in self.f.vec_vregs:
+            self.asm.movups_load(scratch, self.va(v))
+        else:
+            self.asm.movsd_load(scratch, self.va(v), 64)
         return scratch
 
     def wregf(self, v, scratch):
@@ -161,12 +164,14 @@ class CodeGen:
         l = self.loc[v]
         if l[0] == "x":
             if l[1] != x:
-                self.asm.movsd_load(l[1], x, 64)
+                self.asm.movaps(l[1], x)     # all 128 bits: v may be a vector
+        elif v in self.f.vec_vregs:
+            self.asm.movups_store(self.va(v), x)
         else:
             self.asm.movsd_store(self.va(v), x, 64)
 
     def stack_params(self, f):
-        ni = sum(1 for (_, t, _) in f.params if t.kind != "float")
+        ni = sum(1 for (_, t, _) in f.params if t.kind not in ("float", "vec"))
         return ni > len(INT_ARG_REGS) or (len(f.params) - ni) > 8
 
     def narrow(self, r, ty):
@@ -187,7 +192,7 @@ class CodeGen:
         """moves: list of (dst_phys, kind, val) with kind in 'r' | 'm' | 'i'.
         Performs them as if simultaneous."""
         pending = [list(m) for m in moves if not (m[1] == "r" and m[0] == m[2])]
-        mv = (self.asm.movsd_load if float_regs else self.asm.mov_rr)
+        mv = (self.asm.movaps if float_regs else self.asm.mov_rr)
         while pending:
             srcs = {m[2] for m in pending if m[1] == "r"}
             for i, (d, k, val) in enumerate(pending):
@@ -199,7 +204,7 @@ class CodeGen:
                 # every destination is also a source: break the cycle
                 d0, k0, v0 = pending[0]
                 if float_regs:
-                    self.asm.movsd_load(XT2, v0, 64)
+                    self.asm.movaps(XT2, v0)
                     tmp = XT2
                 else:
                     self.asm.mov_rr(R11, v0)
@@ -213,7 +218,9 @@ class CodeGen:
         a = self.asm
         if float_regs:
             if k == "r":
-                a.movsd_load(d, val, 64)
+                a.movaps(d, val)
+            elif val in self.f.vec_vregs:
+                a.movups_load(d, self.va(val))
             else:
                 a.movsd_load(d, self.va(val), 64)
             return
@@ -322,7 +329,7 @@ class CodeGen:
         nstack = 0
         late = []
         for (pname, pty, pv) in f.params:
-            isf = pty.kind == "float"
+            isf = pty.kind in ("float", "vec")
             if (isf and flts >= 8) or (not isf and ints >= len(INT_ARG_REGS)):
                 # passed on the stack: above the return address and saved rbp
                 late.append((pv, isf, Mem(RBP, 16 + 8 * nstack)))
@@ -332,6 +339,8 @@ class CodeGen:
                 flts += 1
                 if self.loc[pv][0] == "x":
                     xmm_moves.append((self.loc[pv][1], "r", src))
+                elif pv in f.vec_vregs:
+                    a.movups_store(self.va(pv), src)
                 else:
                     a.movsd_store(self.va(pv), src, 64)
             else:
@@ -661,7 +670,7 @@ class CodeGen:
                 if ins.b:
                     x = self.rdf(ins.a, XT0)
                     if x != 0:
-                        a.movsd_load(0, x, 64)
+                        a.movaps(0, x)
                 else:
                     r = self.rd(ins.a, RAX)
                     a.mov_rr(RAX, r)
@@ -884,9 +893,95 @@ class CodeGen:
         self.narrow(r, ty)
         self.done(d, r)
 
+    def gen_vec(self, ins):
+        """SIMD operations: 128-bit vectors in xmm registers."""
+        a = self.asm
+        d, name, args, t = ins.a, ins.b, ins.c, ins.e
+        kind = {"f32": "ps", "f64": "pd", "s32": "d"}[str(t.elem)]
+        if name == "vload":
+            p = self.rd(args[0], R10)
+            x = self.wregf(d, XT0)
+            a.movups_load(x, Mem(p, 0))
+            self.donef(d, x)
+        elif name == "vstore":
+            p = self.rd(args[0], R10)
+            x = self.rdf(args[1], XT0)
+            a.movups_store(Mem(p, 0), x)
+        elif name == "vzero":
+            x = self.wregf(d, XT0)
+            a.xorps(x, x)
+            self.donef(d, x)
+        elif name == "vsplat":
+            x = self.wregf(d, XT0)
+            if kind == "d":
+                r = self.rd(args[0], RAX)
+                a.movd_xr(x, r)
+                a.pshufd(x, x, 0)
+            else:
+                s = self.rdf(args[0], XT1)
+                if x != s:
+                    a.movaps(x, s)
+                if kind == "ps":
+                    a.shufps(x, x, 0)
+                else:
+                    a.unpcklpd(x, x)
+            self.donef(d, x)
+        elif name in ("vbin", "vmin", "vmax"):
+            o = ins.d if name == "vbin" else name[1:]
+            x = self.rdf(args[0], XT0)
+            y = self.rdf(args[1], XT1)
+            r = self.wregf(d, XT0)
+            if r == y and r != x:
+                if o in ("+", "*", "&", "|", "^"):
+                    x, y = y, x
+                else:
+                    a.movaps(XT2, y)
+                    y = XT2
+            if r != x:
+                a.movaps(r, x)
+            a.vop(o, kind, r, y)
+            self.donef(d, r)
+        elif name == "vsqrt":
+            x = self.rdf(args[0], XT1)
+            r = self.wregf(d, XT0)
+            a.vop("sqrt", kind, r, x)
+            self.donef(d, r)
+        elif name == "vsum":
+            x = self.rdf(args[0], XT1)
+            a.movaps(XT0, x)
+            a.hadd(kind, XT0, XT0)        # (l0+l1, l2+l3, ...)
+            if kind != "pd":
+                a.hadd(kind, XT0, XT0)    # (l0+l1)+(l2+l3)
+            self._vec_scalar_out(d, kind)
+        elif name == "vget":
+            x = self.rdf(args[0], XT1)
+            lane = ins.d
+            if kind == "pd":
+                a.movaps(XT0, x)
+                if lane == 1:
+                    a.unpckhpd(XT0, XT0)
+            else:
+                a.pshufd(XT0, x, lane)
+            self._vec_scalar_out(d, kind)
+        else:
+            raise Exception("codegen: unknown vector op %r" % name)
+
+    def _vec_scalar_out(self, d, kind):
+        """The low lane of xmm0 becomes the scalar d."""
+        a = self.asm
+        if kind == "d":
+            a.movd_rx(RAX, XT0)
+            a.movsx(RAX, RAX, 4)
+            self.done(d, RAX)
+        else:
+            self.donef(d, XT0)
+
     def gen_intr(self, ins):
         a = self.asm
         d, name, args = ins.a, ins.b, ins.c
+        if name in ("vload", "vstore", "vzero", "vsplat", "vbin", "vmin",
+                    "vmax", "vsqrt", "vsum", "vget"):
+            return self.gen_vec(ins)
         if name == "sqrt":
             x = self.rdf(args[0], XT1)
             t = self.wregf(d, XT0)

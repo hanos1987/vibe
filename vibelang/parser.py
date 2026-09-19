@@ -21,7 +21,8 @@ CMP_OPS = {"==", "!=", "<", ">", "<=", ">="}
 # Operators that may repeat in an unparenthesised chain.
 COMPOUND = {"+=", "-=", "*=", "/=", "%=", "&=", "|=", "^=", "<<=", ">>="}
 PRIM_NAMES = {"s8", "s16", "s32", "s64", "u8", "u16", "u32", "u64",
-              "f32", "f64", "b", "v"}
+              "f32", "f64", "b", "v",
+              "f32x4", "f32x8", "f64x2", "f64x4", "s32x4", "s32x8"}
 
 
 def has_call(e):
@@ -36,8 +37,7 @@ def has_call(e):
 
 CHAINABLE = {"+", "*", "&", "|", "^", "&&", "||"}
 
-PRIM_NAMES = {"v", "b", "s8", "s16", "s32", "s64",
-              "u8", "u16", "u32", "u64", "f32", "f64"}
+# (PRIM_NAMES is defined once, above)
 
 
 class ParseError(Exception):

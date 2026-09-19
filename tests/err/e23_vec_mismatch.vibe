@@ -1,0 +1,7 @@
+; err: type mismatch
+@! () s64 {
+  $ a = f32x4(1.0)
+  $ b = f64x2(1.0)
+  $ c = a + b
+  ^ 0
+}

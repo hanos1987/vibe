@@ -28,6 +28,12 @@ typedef struct { s64 x; } __attribute__((packed, may_alias)) m_s64;
 typedef struct { u64 x; } __attribute__((packed, may_alias)) m_u64;
 typedef struct { float x; } __attribute__((packed, may_alias)) m_f32;
 typedef struct { double x; } __attribute__((packed, may_alias)) m_f64;
+#define VIBE_VEC(name, elem, bytes) \
+  typedef elem name __attribute__((vector_size(bytes))); \
+  typedef struct { name x; } __attribute__((packed, may_alias)) m_##name;
+VIBE_VEC(f32x4, float, 16) VIBE_VEC(f32x8, float, 32)
+VIBE_VEC(f64x2, double, 16) VIBE_VEC(f64x4, double, 32)
+VIBE_VEC(s32x4, s32, 16) VIBE_VEC(s32x8, s32, 32)
 void *memcpy(void *d, const void *s, unsigned long n) {
   u8 *a = d; const u8 *b = s; while (n--) *a++ = *b++; return d; }
 void *memmove(void *d, const void *s, unsigned long n) {
@@ -173,9 +179,13 @@ class CGen:
         return "\n".join(o) + "\n"
 
     def proto(self, f):
-        ps = ", ".join("%s v%d" % ("double" if pty.kind == "float" else "s64", pv)
+        def ct(t):
+            if t.kind == "vec":
+                return str(t)
+            return "double" if t.kind == "float" else "s64"
+        ps = ", ".join("%s v%d" % (ct(pty), pv)
                        for (_, pty, pv) in f.params) or "void"
-        rt = "double" if f.ret.kind == "float" else "s64"
+        rt = ct(f.ret)
         link = "" if f.name == "@!" else "static "
         return "%s%s %s(%s)" % (link, rt, fn_name(f.name), ps)
 
@@ -187,7 +197,11 @@ class CGen:
         ints = [v for v in range(f.nvreg)
                 if v not in pvs and v not in f.float_vregs]
         flts = [v for v in range(f.nvreg)
-                if v not in pvs and v in f.float_vregs]
+                if v not in pvs and v in f.float_vregs
+                and v not in f.vec_vregs]
+        for v, vt in f.vec_vregs.items():
+            if v not in pvs:
+                o.append("  %s v%d = {0};" % (vt, v))
         if ints:
             o.append("  s64 %s;" % ", ".join("v%d = 0" % v for v in ints))
         if flts:
@@ -298,6 +312,10 @@ class CGen:
             o.append("  v%d = vibe_sys(%d, %s);" % (i.a, i.b, ", ".join(args)))
         elif op == "cvt":
             self.cvt(i)
+        elif op == "intr" and i.b in ("vload", "vstore", "vsplat", "vzero",
+                                      "vbin", "vsum", "vget", "vsqrt",
+                                      "vmin", "vmax"):
+            self.vec(i)
         elif op == "intr":
             x = ["v%d" % v for v in i.c]
             e = {
@@ -334,6 +352,49 @@ class CGen:
             o.append("  __builtin_trap();")
         else:
             raise Exception("C backend: unhandled IR op %r" % op)
+
+    def vec(self, i):
+        o = self.out
+        t = i.e
+        n = t.n
+        ce = {"f32": "float", "f64": "double", "s32": "s32"}[str(t.elem)]
+        x = ["v%d" % v for v in i.c]
+        name = i.b
+
+        def lanes(fmt):
+            return "(%s){%s}" % (t, ", ".join(fmt % {"k": k} for k in range(n)))
+
+        def tree(parts):
+            # the fixed pairwise order the native backend uses
+            while len(parts) > 1:
+                parts = ["(%s + %s)" % (parts[k], parts[k + 1])
+                         for k in range(0, len(parts), 2)]
+            return parts[0]
+        if name == "vload":
+            e = "((m_%s*)%s)->x" % (t, x[0])
+        elif name == "vstore":
+            o.append("  ((m_%s*)%s)->x = %s;" % (t, x[0], x[1]))
+            return
+        elif name == "vsplat":
+            e = lanes("(%s)%s" % (ce, x[0]))
+        elif name == "vzero":
+            e = "(%s){0}" % t
+        elif name == "vbin":
+            e = "%s %s %s" % (x[0], i.d, x[1])
+        elif name == "vsum":
+            e = tree(["%s[%d]" % (x[0], k) for k in range(n)])
+            e = "(s64)(s32)%s" % e if ce == "s32" else "(double)(%s)%s" % (ce, e)
+        elif name == "vget":
+            e = "%s[%d]" % (x[0], i.d)
+            e = "(s64)%s" % e if ce == "s32" else "(double)%s" % e
+        elif name == "vsqrt":
+            fn = "__builtin_sqrtf" if ce == "float" else "__builtin_sqrt"
+            e = lanes(fn + "(" + x[0] + "[%(k)d])")
+        else:
+            cmp = "<" if name == "vmin" else ">"
+            e = lanes("%s[%%(k)d] %s %s[%%(k)d] ? %s[%%(k)d] : %s[%%(k)d]"
+                      % (x[0], cmp, x[1], x[0], x[1]))
+        o.append("  v%d = %s;" % (i.a, e))
 
     def bin(self, i):
         d, o, x, y, ty = i.a, i.b, i.c, i.d, i.e
@@ -402,6 +463,8 @@ def compile_program_c(prog, keep=None):
         extra = os.environ.get("VIBE_CFLAGS", "").split()
         flags = list(CFLAGS)
         libs = []
+        if prog.wide_vectors:
+            flags.append("-mavx2")
         if prog.externs:
             for drop in ("-static", "-nostdlib", "-ffreestanding",
                          "-fno-pie", "-no-pie"):

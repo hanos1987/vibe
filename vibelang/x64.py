@@ -372,6 +372,77 @@ class Asm:
     def movsd_load(self, xmm, rm, bits=64):
         self._sse(0xF2 if bits == 64 else 0xF3, 0x10, xmm, rm)
 
+    # ---- packed (SIMD) forms: whole 128-bit registers ----------------------
+    def _sse38(self, pfx, opcode, reg, rm):
+        """three-byte opcode 0F 38 xx"""
+        if pfx:
+            self.b(pfx)
+        if isinstance(rm, Mem):
+            base = rm.base if rm.rip_label is None else None
+            idx = rm.index
+        else:
+            base, idx = rm, None
+        self._rex(0, reg, base, idx)
+        self.b(0x0F, 0x38, opcode)
+        if isinstance(rm, Mem):
+            self._modrm_m(reg, rm)
+        else:
+            self._modrm_rr(reg, rm)
+
+    def movaps(self, dst, src):
+        """register to register, all 128 bits"""
+        self._sse(None, 0x28, dst, src)
+
+    def movups_load(self, xmm, mem):
+        self._sse(None, 0x10, xmm, mem)
+
+    def movups_store(self, mem, xmm):
+        self._sse(None, 0x11, xmm, mem)
+
+    def vop(self, name, kind, dst, src):
+        """dst = dst <name> src, lane by lane. kind: 'ps' 'pd' 'd'"""
+        if kind == "d":
+            two = {"+": 0xFE, "-": 0xFA, "&": 0xDB, "|": 0xEB, "^": 0xEF}
+            three = {"*": 0x40, "min": 0x39, "max": 0x3D}
+            if name in two:
+                self._sse(0x66, two[name], dst, src)
+            else:
+                self._sse38(0x66, three[name], dst, src)
+            return
+        opc = {"+": 0x58, "-": 0x5C, "*": 0x59, "/": 0x5E, "min": 0x5D,
+               "max": 0x5F, "sqrt": 0x51, "&": 0x54, "|": 0x56, "^": 0x57}[name]
+        self._sse(0x66 if kind == "pd" else None, opc, dst, src)
+
+    def hadd(self, kind, dst, src):
+        if kind == "ps":
+            self._sse(0xF2, 0x7C, dst, src)
+        elif kind == "pd":
+            self._sse(0x66, 0x7C, dst, src)
+        else:
+            self._sse38(0x66, 0x02, dst, src)      # phaddd
+
+    def pshufd(self, dst, src, imm):
+        self._sse(0x66, 0x70, dst, src)
+        self.b(imm & 0xFF)
+
+    def shufps(self, dst, src, imm):
+        self._sse(None, 0xC6, dst, src)
+        self.b(imm & 0xFF)
+
+    def unpcklpd(self, dst, src):
+        self._sse(0x66, 0x14, dst, src)
+
+    def unpckhpd(self, dst, src):
+        self._sse(0x66, 0x15, dst, src)
+
+    def movd_xr(self, xmm, r):
+        """movd xmm, r32"""
+        self._sse(0x66, 0x6E, xmm, r)
+
+    def movd_rx(self, r, xmm):
+        """movd r32, xmm"""
+        self._sse(0x66, 0x7E, xmm, r)
+
     def movsd_store(self, rm, xmm, bits=64):
         self._sse(0xF2 if bits == 64 else 0xF3, 0x11, xmm, rm)
 

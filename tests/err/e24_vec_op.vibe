@@ -1,0 +1,6 @@
+; err: not defined on
+@! () s64 {
+  $ a = f32x4(1.0)
+  $ c = a % a
+  ^ 0
+}

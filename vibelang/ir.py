@@ -47,6 +47,7 @@ class Func:
         self.nlabel = 0
         self.frame = 0
         self.float_vregs = set()
+        self.vec_vregs = {}     # vreg -> VecT, a subset of float_vregs
         self.calls = False
 
     def vreg(self, is_float=False):
@@ -86,6 +87,7 @@ class Program:
         self.globals = {}       # name -> (Type, bytes_or_None, is_bss)
         self.rodata = []        # list of (label, bytes)
         self.entry = None
+        self.wide_vectors = False   # 256-bit vectors: C backend only
         self.externs = {}       # name -> (lib, [param Type], ret Type, variadic)
         self._strn = 0
 

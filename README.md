@@ -31,8 +31,8 @@ WSL, on macOS run them in a container or VM.
 | Platform | Command |
 |---|---|
 | Any Linux, macOS | `curl -fsSL https://raw.githubusercontent.com/hanos1987/vibe/master/install.sh \| sh` |
-| Debian / Ubuntu | `sudo apt install vibe` after adding the repository below, or download `vibe_0.3.1_all.deb` from the [release](https://github.com/hanos1987/vibe/releases/latest) and `sudo apt install ./vibe_0.3.1_all.deb` |
-| Any, with pip | `pipx install https://github.com/hanos1987/vibe/releases/download/v0.3.1/vibe_lang-0.3.1-py3-none-any.whl` |
+| Debian / Ubuntu | `sudo apt install vibe` after adding the repository below, or download `vibe_0.4.0_all.deb` from the [release](https://github.com/hanos1987/vibe/releases/latest) and `sudo apt install ./vibe_0.4.0_all.deb` |
+| Any, with pip | `pipx install https://github.com/hanos1987/vibe/releases/download/v0.4.0/vibe_lang-0.4.0-py3-none-any.whl` |
 | Windows | `irm https://raw.githubusercontent.com/hanos1987/vibe/master/install.ps1 \| iex` |
 | From source | `git clone https://github.com/hanos1987/vibe && cd vibe && ./install.sh` |
 
@@ -75,6 +75,7 @@ so nothing depends on knowing English.
 | Formatting | `\print("x={} y={.2}\n", x, y)`, `\fmt` |
 | Control | `?` `:` if/else, `*` loops, `* i 0 n` counted loops, `??` exhaustive match, `~` defer |
 | Modules | `<<"file"` flat include, `<<"file" ns` namespaced include |
+| SIMD | `f32x4 f64x2 s32x4` (native SSE), `f32x8 f64x4 s32x8` (AVX2 via C backend), lane-wise operators, `\vsum \vget \vsqrt \vmin \vmax` |
 | Machine | `\N` syscalls, `\sqrt \popcnt \cas \xadd ...` intrinsics, `\\[..]` raw bytes |
 | Threads | `spawn` / `join` kernel threads, atomics, spin locks, thread-safe heap |
 | C interop | `@< "lib" name (T, ...) R` calls any C library |

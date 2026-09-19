@@ -43,7 +43,7 @@ def build_hints(f):
     # same register removes the entry shuffle entirely
     k = 0
     for (_, pty, pv) in f.params:
-        if pty.kind != "float":
+        if pty.kind not in ("float", "vec"):
             if k < len(INT_ARG_REGS):
                 phys.setdefault(pv, INT_ARG_REGS[k])
             k += 1
@@ -57,6 +57,13 @@ def build_hints(f):
             same.setdefault(ins.a, src)
         elif ins.op in ("fbin", "fun"):
             same.setdefault(ins.a, ins.c)
+        elif ins.op == "intr" and ins.b in ("vbin", "vmin", "vmax",
+                                            "vsplat") and ins.c \
+                and ins.a is not None:
+            # two-operand SSE: computing into the first operand's register
+            # saves a copy when that operand dies here
+            if ins.c[0] in f.float_vregs:
+                same.setdefault(ins.a, ins.c[0])
         elif ins.op in ("call", "calli"):
             k = 0
             for v, isf in zip(ins.c, ins.d):

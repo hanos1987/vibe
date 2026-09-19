@@ -222,12 +222,41 @@ U64 = IntT(64, False)
 F32 = FloatT(32)
 F64 = FloatT(64)
 
+class VecT(Type):
+    """A SIMD vector: n elements of a numeric type, held in one register.
+    Not an aggregate: it is passed, returned and assigned by value."""
+    kind = "vec"
+
+    def __init__(self, elem, n):
+        self.elem = elem
+        self.n = n
+        self.size = elem.size * n
+        self.align = elem.align       # loads and stores are unaligned
+        self.complete = True
+        self.bits = self.size * 8
+
+    def __eq__(self, o):
+        return isinstance(o, VecT) and o.elem == self.elem and o.n == self.n
+
+    def __hash__(self):
+        return hash(("vec", str(self.elem), self.n))
+
+    def __str__(self):
+        return "%sx%d" % (self.elem, self.n)
+
+
 PRIMS = {
     "v": VOID, "b": BOOL,
     "s8": S8, "s16": S16, "s32": S32, "s64": S64,
     "u8": U8, "u16": U16, "u32": U32, "u64": U64,
     "f32": F32, "f64": F64,
 }
+# 128-bit vectors work on both backends; 256-bit ones need --backend=c
+VECS = {}
+for _e, _ns in ((F32, (4, 8)), (F64, (2, 4)), (S32, (4, 8))):
+    for _n in _ns:
+        VECS["%sx%d" % (_e, _n)] = VecT(_e, _n)
+PRIMS.update(VECS)
 
 
 def is_int(t):

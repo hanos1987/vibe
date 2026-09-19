@@ -88,6 +88,8 @@ character, so names may be written in any script.
 | `v` | void; only a return type |
 | `*T` | pointer to T |
 | `[N]T` | array of N T, N a literal |
+| `f32x4 f64x2 s32x4` | SIMD vectors: 4 x f32, 2 x f64, 4 x s32 in one register |
+| `f32x8 f64x4 s32x8` | 256-bit vectors (AVX2; built through the C backend) |
 | `%Name` | a declared struct or sum type |
 | `@(T, ...) R` | pointer to a function taking T... returning R |
 
@@ -454,6 +456,46 @@ of 10^18 and above in exponent form, `inf`/`nan` as such), `%Str` and `*u8`
 as text (a null `*u8` as `(null)`), `b` as 0/1, other pointers in hex. `{.N}` sets a float's
 decimals, `{x}` prints an integer in hex, `{c}` a `u8` as a character.
 Formatting needs `<<"heap.vibe"`.
+
+### SIMD vectors
+
+A vector holds several numbers in one CPU register and operates on all of
+them with one instruction.
+
+```
+@ dot (a *f32, b *f32, n s64) f32 {
+  $~ acc f32x4                        ; four lanes, all zero
+  $~ i = 0
+  * (i + 4) <= n {
+    acc += *f32x4(a + i)' * *f32x4(b + i)'
+    i += 4
+  }
+  $~ s = \vsum(acc)
+  * i < n {                           ; the tail, one at a time
+    s += a[i] * b[i]
+    i += 1
+  }
+  ^ s
+}
+```
+
+* `f32x4(x)` broadcasts a scalar to every lane; a literal next to a vector
+  broadcasts by itself (`v * 0.5`).
+* `+ - * /` work lane by lane on float vectors; `+ - * & | ^` on `s32`
+  vectors. Both operands must be the same vector type.
+* Memory is reached through a vector pointer: `*f32x4(p)'` loads four
+  `f32` starting at `p`, and assigning to it stores them. No alignment is
+  required.
+* `\vsum(v)` adds the lanes (pairwise: `(l0+l1)+(l2+l3)`), `\vget(v, 2)`
+  reads one lane (the lane is a literal), `\vsqrt(v)`, `\vmin(a, b)` and
+  `\vmax(a, b)` work lane by lane.
+* Vectors are values: they can be locals, parameters, results, struct
+  fields and array elements. They cannot be compared, formatted or passed
+  through a function pointer.
+
+The 128-bit types compile natively to SSE; `s32` multiply, min and max need
+SSE4.1. The 256-bit types need AVX2 and are built through the C backend
+automatically.
 
 ### Intrinsics
 

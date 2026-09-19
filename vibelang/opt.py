@@ -848,6 +848,8 @@ def _splice(caller, call, callee, serial):
     def v(x):
         if x not in vmap:
             vmap[x] = caller.vreg(x in callee.float_vregs)
+            if x in callee.vec_vregs:
+                caller.vec_vregs[vmap[x]] = callee.vec_vregs[x]
         return vmap[x]
 
     smap = {}
@@ -900,6 +902,7 @@ def inline(prog):
                 c = Func(f.name, f.params, f.ret, f.sret)
                 c.ins = list(f.ins)
                 c.float_vregs = set(f.float_vregs)
+                c.vec_vregs = dict(f.vec_vregs)
                 c.calls = f.calls
                 snap[f.name] = c
         for f in prog.funcs:

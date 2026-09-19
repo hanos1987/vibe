@@ -1,0 +1,104 @@
+; SIMD vector types: broadcast, operators, loads and stores, reductions
+; out: 10.00 26.00
+; out: 3.00 2.50 1.41
+; out: 14 -2 6
+; out: 1.50 4.00
+; out: 1275.00
+; out: ...
+; out: 45.00 10
+; out: 7.00
+<<"std.vibe"
+<<"math.vibe"
+
+@ dot (a *f32, b *f32, n s64) f32 {
+  $~ acc f32x4
+  $~ i = 0
+  * (i + 4) <= n {
+    $ x = *f32x4(a + i)'
+    $ y = *f32x4(b + i)'
+    acc += x * y
+    i += 4
+  }
+  $~ s = \vsum(acc)
+  * i < n {
+    s += a[i] * b[i]
+    i += 1
+  }
+  ^ s
+}
+
+@ scale (v f64x2, k f64) f64x2 {
+  ^ v * f64x2(k)
+}
+
+; too big to inline: vectors really cross a call, in xmm registers, with
+; values live across an inner call
+@ grind (v f32x4, w s32x4, n s64) f32x4 {
+  $~ acc = v
+  $~ iw = w
+  * i 0 n {
+    $ t = (acc * 1.5) + f32x4(f32(i))
+    $ u = \vmin(t, f32x4(40.0))
+    pc(`.)
+    acc = (u - v) + \vmax(v, f32x4(0.5))
+    iw = (iw + s32x4(1)) ^ s32x4(0)
+    ? \vget(iw, 0) > 1000 {
+      iw = s32x4(0)
+    }
+  }
+  ? \vsum(iw) > 0 {
+    acc += 1.0
+  }
+  ^ acc
+}
+
+@! () s64 {
+  $~ xs [8]f32 = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]
+  $ v = *f32x4(&xs[0])'
+  $ w = *f32x4(&xs[4])'
+  pf(f64(\vsum(v)), 2)
+  pc(` )
+  pfl(f64(\vsum(w)), 2)
+  $ q = (w - v) / 2.0
+  $ r = \vsqrt(q)
+  pf(f64(\vget(v, 2)), 2)
+  pc(` )
+  $ m = \vmax(v, f32x4(2.5))
+  pf(f64(\vget(m, 0)), 2)
+  pc(` )
+  pfl(f64(\vget(r, 1)), 2)
+  $ a s32x4 = s32x4(3)
+  $~ ia [4]s32 = [1, -2, 3, 4]
+  $ b = *s32x4(&ia[0])'
+  $ c = (a * b) + s32x4(2)
+  pn(s64(\vget(c, 3)))
+  pc(` )
+  pn(s64(\vget(-b, 1) - 4))
+  pc(` )
+  pnl(s64(\vsum(b)))
+  $ d = scale(f64x2(0.5), 3.0)
+  $~ out [2]f64
+  *f64x2(&out[0])' = d + *f64x2(&out[0])'
+  out[1] = out[1] + 2.5
+  pf(out[0], 2)
+  pc(` )
+  pfl(out[1], 2)
+  $~ big [50]f32
+  * k 0 50 {
+    big[k] = f32(k + 1)
+  }
+  $~ ones [50]f32
+  * k 0 50 {
+    ones[k] = 1.0
+  }
+  pfl(f64(dot(&big[0], &ones[0], 50)), 2)
+  $~ z f32x4
+  z += 1.75
+  $ g = grind(f32x4(2.0), s32x4(1), 3)
+  nl()
+  pf(f64(\vsum(g)), 2)
+  pc(` )
+  pnl(s64(\vsum(s32x4(1) + s32x4(1)) + 2))
+  pfl(f64(\vsum(z)), 2)
+  ^ 0
+}
