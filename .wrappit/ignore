@@ -1,0 +1,75 @@
+# Files that don't need a Wrappit note, one pattern per line.
+#   name.ext   matches that name in any folder
+#   folder/    matches a whole folder, in any folder
+#   a/b/*.txt  matches from the repo root; ** matches any number of folders
+# Lines starting with # are comments. Negation (!) is not supported.
+
+# Lock files and generated code
+*.lock
+package-lock.json
+pnpm-lock.yaml
+yarn.lock
+go.sum
+*.min.js
+*.min.css
+*.map
+
+# Images, fonts, audio, video
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.webp
+*.ico
+*.svg
+*.woff
+*.woff2
+*.ttf
+*.otf
+*.mp3
+*.wav
+*.ogg
+*.mp4
+*.webm
+
+# 3D, textures and design files
+*.hdr
+*.exr
+*.ktx2
+*.glb
+*.fbx
+*.blend
+*.psd
+*.ai
+*.sketch
+*.fig
+
+# Archives and compiled files
+*.zip
+*.tar
+*.gz
+*.pdf
+*.exe
+*.dll
+*.so
+*.dylib
+*.bin
+*.pyc
+*.class
+*.o
+*.a
+*.wasm
+
+# Licenses
+LICENSE
+LICENSE.*
+
+# Instructions for AI tools (they document themselves)
+AGENTS.md
+CLAUDE.md
+GEMINI.md
+.windsurfrules
+.github/copilot-instructions.md
+.cursor/rules/
+.claude/settings.json
+.claude/settings.local.json
