@@ -11,5 +11,7 @@ Every file has a short note in `.wrappit/files/<path>.md`. The project summary i
 - Notes are short and plain: What it is, How to navigate it, What it interacts with,
   Why it exists, Helpful notes. A few sentences each, written for a person who has
   never seen the code.
-- Commit with `wrappit save "message"`: it checks the notes, commits and pushes. Run `wrappit check` before you finish; commits are blocked while notes are missing or out of date.
+- Commit with plain git: stage the files you changed and their notes by name
+  (`git add <file> .wrappit/files/<file>.md`), then `git commit`. Never `git add -A` or `git add .`.
+  The commit check runs by itself and blocks commits while notes are missing or out of date.
 <!-- wrappit:end -->
