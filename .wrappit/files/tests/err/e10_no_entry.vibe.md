@@ -10,7 +10,7 @@ note-hash: dd7ad775bd21bfc3
 A tiny VIBE program that must fail to compile with an error containing "no entry function". It fails because the program defines only `@ f` and no `@!` function.
 
 ## How to navigate it
-Line 1 is the `; err: no entry function` expectation comment; the rest is a few lines of code ending in the `@!` entry function.
+Line 1 is the `; err: no entry function` expectation comment; line 2 defines an ordinary function `f` and, on purpose, no `@!` entry function.
 
 ## What it interacts with
 Run by tests/run.py (the run_err check), which compiles it with vibec and passes only if compiling fails and the error text contains the `; err:` substring. It includes no other files.
